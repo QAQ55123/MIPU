@@ -16,6 +16,7 @@ export default function AdminPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginMsg, setLoginMsg] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
   const [currentUsername, setCurrentUsername] = useState("");
   const [currentRole, setCurrentRole] = useState<"owner" | "staff" | "">("");
@@ -64,6 +65,11 @@ export default function AdminPage() {
         setCheckingSession(false);
       })
       .catch(() => setCheckingSession(false));
+
+    const params = new URLSearchParams(window.location.search);
+    const verify = params.get("verify");
+    if (verify === "success") setVerifyMsg("信箱驗證成功！");
+    else if (verify === "invalid") setVerifyMsg("驗證連結無效或已過期。");
   }, []);
 
   useEffect(() => {
@@ -356,6 +362,7 @@ export default function AdminPage() {
     return (
       <div style={{ maxWidth: 380, margin: "80px auto", padding: 20 }}>
         <h2>米舖 後台</h2>
+        {verifyMsg && <div style={{ background: "#EAF3DE", color: "#27500A", fontSize: 13, padding: "8px 12px", borderRadius: 8, marginBottom: 10 }}>{verifyMsg}</div>}
         <div className="id-row">
           <span className="id-label">帳號</span>
           <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doLogin()} />
@@ -368,6 +375,9 @@ export default function AdminPage() {
         <button className="btn" onClick={doLogin} disabled={loggingIn}>{loggingIn ? "登入中…" : "登入"}</button>
         <p style={{ marginTop: 16, fontSize: 13 }}>
           還沒有帳號？<a href="/admin/register">用邀請碼建立管理者帳號</a>
+        </p>
+        <p style={{ marginTop: 6, fontSize: 13 }}>
+          <a href="/admin/forgot-password">忘記密碼？</a>
         </p>
       </div>
     );

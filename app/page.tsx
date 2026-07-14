@@ -26,6 +26,7 @@ export default function Home() {
   const [source, setSource] = useState<"LINE" | "Discord">("LINE");
   const [nickname, setNickname] = useState("");
   const [fbUrl, setFbUrl] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authMsg, setAuthMsg] = useState("");
   const [needRegister, setNeedRegister] = useState(false);
@@ -143,7 +144,7 @@ export default function Home() {
       const r = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, nickname, fbUrl, password: password || "0000" }),
+        body: JSON.stringify({ source, nickname, fbUrl, password: password || "0000", email: email.trim() || undefined }),
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
@@ -450,10 +451,16 @@ export default function Home() {
             )}
 
             {mode === "MAIN" && needRegister && (
-              <div className="id-row">
-                <span className="id-label">FB 網址</span>
-                <input type="text" value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="https://www.facebook.com/你的個人頁" />
-              </div>
+              <>
+                <div className="id-row">
+                  <span className="id-label">FB 網址</span>
+                  <input type="text" value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="https://www.facebook.com/你的個人頁" />
+                </div>
+                <div className="id-row">
+                  <span className="id-label">Email</span>
+                  <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="選填，忘記密碼時用來找回帳號" />
+                </div>
+              </>
             )}
 
             <div className="id-row">
@@ -463,6 +470,11 @@ export default function Home() {
 
             <div className="auth-msg">{authMsg}</div>
             <button className="btn" onClick={onAuthNext}>繼續</button>
+            {!needRegister && (
+              <p style={{ fontSize: 13 }}>
+                <a href="/forgot-password" style={{ color: "var(--muted)" }}>忘記密碼？（需曾登記過 Email）</a>
+              </p>
+            )}
           </div>
         </div>
       ) : (

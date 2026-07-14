@@ -12,12 +12,16 @@ export async function POST(req: Request) {
   const nickname = String(body.nickname || "").trim();
   const fbUrl = String(body.fbUrl || "").trim();
   const password = String(body.password || "0000");
+  const email = body.email ? String(body.email).trim().toLowerCase() : null;
 
   if (!["LINE", "Discord"].includes(source)) {
     return NextResponse.json({ error: "請選擇來源（LINE / Discord）" }, { status: 400 });
   }
   if (!nickname) return NextResponse.json({ error: "請填寫暱稱" }, { status: 400 });
   if (!fbUrl) return NextResponse.json({ error: "請登記 FB 個人網址" }, { status: 400 });
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json({ error: "Email 格式不正確" }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
   const nickCol = source === "LINE" ? "line_nick" : "discord_nick";
@@ -60,6 +64,7 @@ export async function POST(req: Request) {
       fb_url: fbUrl,
       fb_url_norm: fbNorm,
       [nickCol]: nickname,
+      email,
       password_hash: passwordHash,
     })
     .select()
