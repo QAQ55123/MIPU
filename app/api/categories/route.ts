@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 export async function GET() {
   const supabase = getSupabaseAdmin();
@@ -12,11 +14,14 @@ export async function GET() {
     .order("name", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({
-    categories: (data || []).map((c) => ({
-      id: c.id,
-      name: c.name,
-      parentId: c.parent_id,
-    })),
-  });
+  return NextResponse.json(
+    {
+      categories: (data || []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        parentId: c.parent_id,
+      })),
+    },
+    { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } }
+  );
 }

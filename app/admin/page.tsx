@@ -136,7 +136,7 @@ export default function AdminPage() {
 
   // ================= 分類 =================
   async function loadCategories() {
-    const r = await fetch("/api/categories");
+    const r = await fetch("/api/categories", { cache: "no-store" });
     const d = await r.json();
     setCategories((d.categories || []).map((c: any) => ({ id: c.id, name: c.name, parent_id: c.parentId })));
   }

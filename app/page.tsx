@@ -51,7 +51,7 @@ export default function Home() {
 
   useEffect(() => {
     fetch("/api/config").then((r) => r.json()).then((d) => setMode(d.mode));
-    fetch("/api/categories").then((r) => r.json()).then((d) => setCategories(d.categories || []));
+    fetch("/api/categories", { cache: "no-store" }).then((r) => r.json()).then((d) => setCategories(d.categories || []));
     loadPlans();
   }, []);
 
