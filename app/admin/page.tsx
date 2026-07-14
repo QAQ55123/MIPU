@@ -16,6 +16,7 @@ export default function AdminPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginMsg, setLoginMsg] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
   const [currentUsername, setCurrentUsername] = useState("");
   const [currentRole, setCurrentRole] = useState<"owner" | "staff" | "">("");
   const [checkingSession, setCheckingSession] = useState(true);
@@ -75,17 +76,24 @@ export default function AdminPage() {
   async function doLogin() {
     setLoginMsg("");
     if (!username.trim() || !password) return setLoginMsg("請輸入帳號密碼");
-    const r = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const d = await r.json();
-    if (!r.ok) return setLoginMsg(d.error || "登入失敗");
-    setCurrentUsername(d.username);
-    setCurrentRole(d.role);
-    setUnlocked(true);
-    setPassword("");
+    setLoggingIn(true);
+    try {
+      const r = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setLoginMsg(d.error || "登入失敗");
+      setCurrentUsername(d.username);
+      setCurrentRole(d.role);
+      setUnlocked(true);
+      setPassword("");
+    } catch {
+      setLoginMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLoggingIn(false);
+    }
   }
 
   async function doLogout() {
@@ -357,7 +365,7 @@ export default function AdminPage() {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doLogin()} />
         </div>
         <div style={{ color: "#dc2626", fontSize: 13, minHeight: 18, margin: "6px 0" }}>{loginMsg}</div>
-        <button className="btn" onClick={doLogin}>登入</button>
+        <button className="btn" onClick={doLogin} disabled={loggingIn}>{loggingIn ? "登入中…" : "登入"}</button>
         <p style={{ marginTop: 16, fontSize: 13 }}>
           還沒有帳號？<a href="/admin/register">用邀請碼建立管理者帳號</a>
         </p>

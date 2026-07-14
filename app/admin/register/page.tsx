@@ -8,6 +8,7 @@ export default function AdminRegisterPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [msg, setMsg] = useState("");
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit() {
     setMsg("");
@@ -16,14 +17,21 @@ export default function AdminRegisterPage() {
     if (password !== confirmPassword) return setMsg("兩次輸入的密碼不一樣");
     if (!inviteCode.trim()) return setMsg("請輸入邀請碼");
 
-    const r = await fetch("/api/admin/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, inviteCode }),
-    });
-    const d = await r.json();
-    if (!r.ok) return setMsg(d.error || "註冊失敗");
-    setDone(true);
+    setSubmitting(true);
+    try {
+      const r = await fetch("/api/admin/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, inviteCode }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setMsg(d.error || "註冊失敗");
+      setDone(true);
+    } catch {
+      setMsg("網路連線失敗，請再試一次");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (done) {
@@ -63,7 +71,7 @@ export default function AdminRegisterPage() {
       </div>
 
       <div style={{ color: "#dc2626", fontSize: 13, minHeight: 18, margin: "6px 0" }}>{msg}</div>
-      <button className="btn" onClick={onSubmit}>建立帳號</button>
+      <button className="btn" onClick={onSubmit} disabled={submitting}>{submitting ? "建立中…" : "建立帳號"}</button>
 
       <p style={{ marginTop: 16, fontSize: 13 }}>
         已經有帳號了？<a href="/admin">回到登入頁</a>
