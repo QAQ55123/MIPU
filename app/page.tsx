@@ -439,20 +439,20 @@ export default function Home() {
 
             <div className="id-row">
               <span className="id-label">{mode === "FB" ? "FB 名字" : "暱稱"}</span>
-              <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={mode === "FB" ? "輸入你的 FB 名字（顯示用）" : "輸入你在該社群使用的暱稱"} />
+              <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={mode === "FB" ? "輸入你的 FB 名字（顯示用）" : "輸入你在該社群使用的暱稱"} />
             </div>
 
             {mode === "FB" && (
               <div className="id-row">
                 <span className="id-label">FB 連結</span>
-                <input value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="貼上 FB 個人首頁網址（必填）" />
+                <input type="text" value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="貼上 FB 個人首頁網址（必填）" />
               </div>
             )}
 
             {mode === "MAIN" && needRegister && (
               <div className="id-row">
                 <span className="id-label">FB 網址</span>
-                <input value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="https://www.facebook.com/你的個人頁" />
+                <input type="text" value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="https://www.facebook.com/你的個人頁" />
               </div>
             )}
 

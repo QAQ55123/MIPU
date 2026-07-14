@@ -47,7 +47,7 @@ export default function AdminRegisterPage() {
 
       <div className="id-row">
         <span className="id-label">帳號</span>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="至少 3 個字" />
+        <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="至少 3 個字" />
       </div>
       <div className="id-row">
         <span className="id-label">密碼</span>
@@ -59,7 +59,7 @@ export default function AdminRegisterPage() {
       </div>
       <div className="id-row">
         <span className="id-label">邀請碼</span>
-        <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} placeholder="跟給你這個網址的人索取" />
+        <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} placeholder="跟給你這個網址的人索取" />
       </div>
 
       <div style={{ color: "#dc2626", fontSize: 13, minHeight: 18, margin: "6px 0" }}>{msg}</div>

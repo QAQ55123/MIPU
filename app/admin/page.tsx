@@ -350,7 +350,7 @@ export default function AdminPage() {
         <h2>米舖 後台</h2>
         <div className="id-row">
           <span className="id-label">帳號</span>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doLogin()} />
+          <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doLogin()} />
         </div>
         <div className="id-row">
           <span className="id-label">密碼</span>
@@ -405,7 +405,7 @@ export default function AdminPage() {
 
         <div className="id-row">
           <span className="id-label">名稱</span>
-          <input value={categoryForm.name} onChange={(e) => setCategoryForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：食品、米菓" />
+          <input type="text" value={categoryForm.name} onChange={(e) => setCategoryForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：食品、米菓" />
         </div>
         <div className="id-row">
           <span className="id-label">上層分類</span>
@@ -445,7 +445,7 @@ export default function AdminPage() {
 
         <div className="id-row">
           <span className="id-label">名稱</span>
-          <input value={planForm.name} onChange={(e) => setPlanForm((f) => ({ ...f, name: e.target.value }))} placeholder="企劃名稱" />
+          <input type="text" value={planForm.name} onChange={(e) => setPlanForm((f) => ({ ...f, name: e.target.value }))} placeholder="企劃名稱" />
         </div>
         <div className="id-row">
           <span className="id-label">分類</span>
@@ -518,11 +518,11 @@ export default function AdminPage() {
 
           <div className="id-row">
             <span className="id-label">商品名稱</span>
-            <input value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：原味米菓" />
+            <input type="text" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：原味米菓" />
           </div>
           <div className="id-row">
             <span className="id-label">款式</span>
-            <input value={productForm.style} onChange={(e) => setProductForm((f) => ({ ...f, style: e.target.value }))} placeholder="例如：6入（沒有分款式可留空）" />
+            <input type="text" value={productForm.style} onChange={(e) => setProductForm((f) => ({ ...f, style: e.target.value }))} placeholder="例如：6入（沒有分款式可留空）" />
           </div>
           <div className="id-row">
             <span className="id-label">價格</span>
@@ -560,15 +560,15 @@ export default function AdminPage() {
 
         <div className="auth-card">
           <h3>合併會員</h3>
-          <div className="id-row"><span className="id-label">保留 ID</span><input value={keepId} onChange={(e) => setKeepId(e.target.value)} /></div>
-          <div className="id-row"><span className="id-label">併掉 ID</span><input value={removeId} onChange={(e) => setRemoveId(e.target.value)} /></div>
+          <div className="id-row"><span className="id-label">保留 ID</span><input type="text" value={keepId} onChange={(e) => setKeepId(e.target.value)} /></div>
+          <div className="id-row"><span className="id-label">併掉 ID</span><input type="text" value={removeId} onChange={(e) => setRemoveId(e.target.value)} /></div>
           <button className="btn" onClick={doMerge}>合併</button>
           <div style={{ fontSize: 13 }}>{mergeMsg}</div>
         </div>
 
         <div className="auth-card">
           <h3>重設 FB 會員密碼</h3>
-          <div className="id-row"><span className="id-label">FB 連結</span><input value={resetFb} onChange={(e) => setResetFb(e.target.value)} /></div>
+          <div className="id-row"><span className="id-label">FB 連結</span><input type="text" value={resetFb} onChange={(e) => setResetFb(e.target.value)} /></div>
           <button className="btn" onClick={doReset}>重設為 0000</button>
           <div style={{ fontSize: 13 }}>{resetMsg}</div>
         </div>
@@ -582,7 +582,7 @@ export default function AdminPage() {
               <option value="Discord">Discord</option>
             </select>
           </div>
-          <div className="id-row"><span className="id-label">暱稱</span><input value={resetNick} onChange={(e) => setResetNick(e.target.value)} /></div>
+          <div className="id-row"><span className="id-label">暱稱</span><input type="text" value={resetNick} onChange={(e) => setResetNick(e.target.value)} /></div>
           <button className="btn" onClick={doResetNick}>重設為 0000</button>
           <div style={{ fontSize: 13 }}>{resetNickMsg}</div>
         </div>
