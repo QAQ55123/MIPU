@@ -516,19 +516,30 @@ export default function AdminPage() {
         <div className="auth-card">
           <h3>商品管理：{activePlanForProducts.name}</h3>
           <div style={{ marginBottom: 12 }}>
-            {products.map((p) => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {p.imageUrl && <img src={p.imageUrl} alt={p.name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />}
-                  <div>
-                    <div style={{ fontSize: 14 }}>{p.name}{p.style ? `（${p.style}）` : ""}</div>
-                    <div style={{ fontSize: 12, color: "#8A8779" }}>NT$ {p.price}</div>
+            {Object.entries(
+              products.reduce<Record<string, ProductAdmin[]>>((acc, p) => {
+                acc[p.name] = acc[p.name] || [];
+                acc[p.name].push(p);
+                return acc;
+              }, {})
+            ).map(([name, styles]) => (
+              <div key={name} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#33415C", padding: "6px 0" }}>{name}</div>
+                {styles.map((p) => (
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0 8px 10px", borderBottom: "1px dashed #EDE9DC" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {p.imageUrl && <img src={p.imageUrl} alt={p.name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />}
+                      <div>
+                        <div style={{ fontSize: 14 }}>{p.style || "單一款式"}</div>
+                        <div style={{ fontSize: 12, color: "#8A8779" }}>NT$ {p.price}</div>
+                      </div>
+                    </div>
+                    <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button className="btn small secondary" onClick={() => editProduct(p)}>編輯</button>
+                      <button className="btn small danger" onClick={() => deleteProduct(p.id)}>刪除</button>
+                    </span>
                   </div>
-                </div>
-                <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                  <button className="btn small secondary" onClick={() => editProduct(p)}>編輯</button>
-                  <button className="btn small danger" onClick={() => deleteProduct(p.id)}>刪除</button>
-                </span>
+                ))}
               </div>
             ))}
             {products.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>這個企劃還沒有商品</div>}

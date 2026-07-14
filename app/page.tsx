@@ -20,6 +20,7 @@ export default function Home() {
   const [view, setView] = useState<"identity" | "plans" | "order" | "history">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
   const [toast, setToast] = useState("");
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // identity form state
@@ -525,11 +526,10 @@ export default function Home() {
 
             {view === "order" && activePlan && (
               <div>
-                <button className="btn secondary" onClick={goHome}>&larr; 返回企劃列表</button>
                 <h2 className="section-title">{activePlan.name}</h2>
                 {activePlan.closed && <div className="banner warn">此企劃已截止，無法新增訂單</div>}
 
-                <div className="id-row pay-row">
+                <div className="id-row pay-row" style={{ marginBottom: 24 }}>
                   <span className="id-label">交易方式</span>
                   <div className="source-btns">
                     {["匯款", ...(activePlan.codLimit > 0 ? ["取付"] : [])].map((p) => (
@@ -546,14 +546,23 @@ export default function Home() {
                   }, {})
                 ).map(([name, styles]) => (
                   <div className="group" key={name}>
-                    {styles[0].imageUrl && <img src={styles[0].imageUrl} alt={name} />}
-                    <div className="info">
+                    <div className="info" style={{ width: "100%" }}>
                       <h4>{name}</h4>
                       {styles.map((s) => {
                         const key = `${s.name}||${s.style}`;
                         const qty = cart[key] || 0;
                         return (
                           <div className="style-row" key={key}>
+                            {s.imageUrl ? (
+                              <img
+                                src={s.imageUrl}
+                                alt={s.style || name}
+                                className="style-img"
+                                onClick={() => setLightboxUrl(s.imageUrl!)}
+                              />
+                            ) : (
+                              <div className="style-img-empty" />
+                            )}
                             <span className="style-name">{s.style || "單一款式"}</span>
                             <span className="style-price">NT$ {fmt(s.price)}</span>
                             <div className="stepper">
@@ -612,6 +621,13 @@ export default function Home() {
       )}
 
       <div className={`toast ${toast ? "show" : ""}`}>{toast}</div>
+
+      {lightboxUrl && (
+        <div className="lightbox show" onClick={() => setLightboxUrl(null)}>
+          <span className="lightbox-close" onClick={() => setLightboxUrl(null)}>&times;</span>
+          <img src={lightboxUrl} className="lightbox-img" alt="放大檢視" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </>
   );
 }
