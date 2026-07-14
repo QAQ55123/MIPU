@@ -49,6 +49,14 @@ export async function POST(req: Request) {
   if (!name) return NextResponse.json({ error: "請填寫商品名稱" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
+  const { data: existing } = await supabase
+    .from("products")
+    .select("sort_order")
+    .eq("plan_id", body.planId)
+    .order("sort_order", { ascending: false })
+    .limit(1);
+  const nextSortOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
+
   const { data, error } = await supabase
     .from("products")
     .insert({
@@ -57,6 +65,7 @@ export async function POST(req: Request) {
       style: body.style || "",
       price: Number(body.price) || 0,
       image_url: body.imageUrl || null,
+      sort_order: nextSortOrder,
     })
     .select()
     .single();

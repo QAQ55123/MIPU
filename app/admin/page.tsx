@@ -38,6 +38,7 @@ export default function AdminPage() {
   const [activePlanForProducts, setActivePlanForProducts] = useState<PlanAdmin | null>(null);
   const [products, setProducts] = useState<ProductAdmin[]>([]);
   const [productForm, setProductForm] = useState(emptyProductForm);
+  const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
   const [productMsg, setProductMsg] = useState("");
   const [uploadingProductImg, setUploadingProductImg] = useState(false);
 
@@ -303,6 +304,24 @@ export default function AdminPage() {
     }
   }
 
+  function handleProductDrop(targetId: string) {
+    if (!draggedProductId || draggedProductId === targetId) return;
+    setProducts((prev) => {
+      const next = [...prev];
+      const fromIdx = next.findIndex((p) => p.id === draggedProductId);
+      const toIdx = next.findIndex((p) => p.id === targetId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      // 存到後端（不用等回應才更新畫面，畫面已經先動了）
+      callJson("/api/admin/products/reorder", "POST", { ids: next.map((p) => p.id) }).catch((e) => {
+        setProductMsg("排序儲存失敗：" + e.message);
+      });
+      return next;
+    });
+    setDraggedProductId(null);
+  }
+
   async function handleProductImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -526,8 +545,16 @@ export default function AdminPage() {
               <div key={name} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#33415C", padding: "6px 0" }}>{name}</div>
                 {styles.map((p) => (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0 8px 10px", borderBottom: "1px dashed #EDE9DC" }}>
+                  <div
+                    key={p.id}
+                    draggable
+                    onDragStart={() => setDraggedProductId(p.id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleProductDrop(p.id)}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0 8px 10px", borderBottom: "1px dashed #EDE9DC", cursor: "grab", opacity: draggedProductId === p.id ? 0.4 : 1 }}
+                  >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ color: "#B0AC9C", fontSize: 14, cursor: "grab" }} title="拖曳排序">⠿</span>
                       {p.imageUrl && <img src={p.imageUrl} alt={p.name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />}
                       <div>
                         <div style={{ fontSize: 14 }}>{p.style || "單一款式"}</div>
