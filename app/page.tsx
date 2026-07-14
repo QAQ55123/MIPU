@@ -76,6 +76,10 @@ export default function Home() {
     setSelectedCategoryId(id);
     loadPlans(id, searchQuery);
     setMobileDrawerOpen(false);
+    // 選到有子分類的分類時，自動展開，不用另外去點小箭頭
+    if (id && categories.some((c) => c.parentId === id)) {
+      setExpandedIds((prev) => new Set(prev).add(id));
+    }
   }
 
   function toggleExpand(id: string) {
@@ -309,7 +313,7 @@ export default function Home() {
               >
                 <span>{root.name}</span>
                 {hasChildren && (
-                  <span onClick={(e) => { e.stopPropagation(); toggleExpand(root.id); }} style={{ display: "flex" }}>
+                  <span onClick={(e) => { e.stopPropagation(); toggleExpand(root.id); }} style={{ display: "flex", padding: 6, margin: -6 }}>
                     {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </span>
                 )}
