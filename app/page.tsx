@@ -268,6 +268,7 @@ export default function Home() {
     const id = useIdentity || identity;
     if (!id) return;
     setView("history");
+    setCategoryQuickOpen(false);
     setHistoryLoading(true);
     const params = new URLSearchParams();
     if (id.fbUrl) params.set("fbUrl", id.fbUrl);
@@ -356,7 +357,7 @@ export default function Home() {
         </div>
         <div
           className={`account-nav-item ${view === "account" ? "active" : ""}`}
-          onClick={() => { setView("account"); setAccountMsg(""); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+          onClick={() => { setView("account"); setAccountMsg(""); setCategoryQuickOpen(false); if (closeAfterSelect) setMobileDrawerOpen(false); }}
         >
           編輯會員資料
         </div>
@@ -605,18 +606,16 @@ export default function Home() {
             className={`category-sidebar-desktop ${isAccountArea ? "account-sidebar-active" : ""}`}
             style={!isAccountArea ? { display: sidebarOpen ? undefined : "none" } : undefined}
           >
-            {isAccountArea ? renderAccountNav(false) : renderCategoryTree()}
+            {isAccountArea
+              ? categoryQuickOpen
+                ? renderCategoryTree(() => setCategoryQuickOpen(false))
+                : renderAccountNav(false)
+              : renderCategoryTree()}
           </aside>
 
           <div className={`category-drawer-mobile ${mobileDrawerOpen && !isAccountArea ? "open" : ""}`}>
             <div className="category-drawer-panel">{renderCategoryTree(() => setMobileDrawerOpen(false))}</div>
           </div>
-
-          {isAccountArea && (
-            <div className={`category-drawer-mobile category-quick-drawer ${categoryQuickOpen ? "open" : ""}`}>
-              <div className="category-drawer-panel">{renderCategoryTree(() => setCategoryQuickOpen(false))}</div>
-            </div>
-          )}
 
           <main className="main" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
             {!isAccountArea && renderBreadcrumb()}
@@ -724,6 +723,21 @@ export default function Home() {
                             <div className="product-info-v3">
                               <h4>{name}</h4>
                               <div className="product-price-v3">NT$ {fmt(current.price)}</div>
+
+                              {styles.some((s) => s.imageUrl) && (
+                                <div className="thumb-row">
+                                  {styles.map((s) => (
+                                    <button
+                                      key={s.style}
+                                      className={`thumb-swatch ${currentStyle === s.style ? "active" : ""}`}
+                                      onClick={() => setSelectedStyleByProduct((prev) => ({ ...prev, [name]: s.style }))}
+                                      title={s.style || "單一款式"}
+                                    >
+                                      {s.imageUrl ? <img src={s.imageUrl} alt={s.style || name} /> : <span className="thumb-swatch-empty">無圖</span>}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
 
                               {styles.length > 1 && (
                                 <>
