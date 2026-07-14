@@ -49,9 +49,12 @@ export default function Home() {
   // plans / order state
   const [plans, setPlans] = useState<Plan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({}); // key: name||style
+  const [productFilter, setProductFilter] = useState<string | null>(null);
   const [payment, setPayment] = useState("匯款");
   const [history, setHistory] = useState<any[]>([]);
 
@@ -115,12 +118,17 @@ export default function Home() {
 
   // 逛企劃、看商品完全不需要登入；只有「送出訂單」「查歷史訂單」才會要求先選身分
   async function openPlan(p: Plan) {
+    setView("order");
+    setActivePlan(null);
+    setProducts([]);
+    setProductsLoading(true);
     const r = await fetch(`/api/plans/${p.id}`, { cache: "no-store" });
     const d = await r.json();
     setActivePlan(d.plan);
     setProducts(d.products || []);
     setCart({});
-    setView("order");
+    setProductFilter(null);
+    setProductsLoading(false);
   }
 
   function requireIdentity(action: PendingAction) {
@@ -256,12 +264,14 @@ export default function Home() {
   async function openHistoryNow(useIdentity?: Identity) {
     const id = useIdentity || identity;
     if (!id) return;
+    setView("history");
+    setHistoryLoading(true);
     const params = new URLSearchParams();
     if (id.fbUrl) params.set("fbUrl", id.fbUrl);
-    const r = await fetch(`/api/orders?${params.toString()}`);
+    const r = await fetch(`/api/orders?${params.toString()}`, { cache: "no-store" });
     const d = await r.json();
     setHistory(d.orders || []);
-    setView("history");
+    setHistoryLoading(false);
   }
 
   async function cancelOrder(orderNo: string) {
@@ -316,7 +326,9 @@ export default function Home() {
   }
 
   // ---- 麵包屑 ----
-  const chain = getCategoryChain(selectedCategoryId);
+  // 在企劃詳細頁時，路徑要用「這個企劃實際歸屬的分類」，而不是使用者是從哪個篩選點進來的
+  const chain =
+    view === "order" && activePlan ? getCategoryChain(activePlan.categoryId ?? null) : getCategoryChain(selectedCategoryId);
   const breadcrumbParts: { label: string; onClick?: () => void }[] = [
     { label: "全部", onClick: () => goHome() },
   ];
@@ -427,8 +439,15 @@ export default function Home() {
               <div className="mibu-logo-group">
                 <button
                   className="mibu-icon-btn"
-                  aria-label="展開目錄"
-                  onClick={() => { setSidebarOpen((v) => !v); setMobileDrawerOpen((v) => !v); }}
+                  aria-label="展開分類目錄"
+                  onClick={() => {
+                    if (isAccountArea) {
+                      goHome();
+                    } else {
+                      setSidebarOpen((v) => !v);
+                      setMobileDrawerOpen((v) => !v);
+                    }
+                  }}
                 >
                   <Menu size={20} />
                 </button>
@@ -578,13 +597,16 @@ export default function Home() {
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", position: "relative", maxWidth: 1200, margin: "0 auto" }}>
-          <aside className="category-sidebar-desktop" style={{ display: sidebarOpen ? undefined : "none" }}>
+        <div className="mibu-content-row" style={{ maxWidth: 1200, margin: "0 auto" }}>
+          <aside
+            className={`category-sidebar-desktop ${isAccountArea ? "account-sidebar-active" : ""}`}
+            style={!isAccountArea ? { display: sidebarOpen ? undefined : "none" } : undefined}
+          >
             {isAccountArea ? renderAccountNav(false) : renderCategoryTree(false)}
           </aside>
 
-          <div className={`category-drawer-mobile ${mobileDrawerOpen ? "open" : ""}`}>
-            <div className="category-drawer-panel">{isAccountArea ? renderAccountNav(true) : renderCategoryTree(true)}</div>
+          <div className={`category-drawer-mobile ${mobileDrawerOpen && !isAccountArea ? "open" : ""}`}>
+            <div className="category-drawer-panel">{renderCategoryTree(true)}</div>
           </div>
 
           <main className="main" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
@@ -592,34 +614,41 @@ export default function Home() {
 
             {view === "plans" && (
               <div>
-                {plansLoading && <div className="spinner">載入中…</div>}
-                <div className="plan-grid">
-                  {plans.map((p) => (
-                    <div key={p.id} className={`plan-card-v2 ${p.closed ? "closed" : ""}`} onClick={() => openPlan(p)}>
-                      <div className="plan-card-v2-img">
-                        {p.imageUrl && <img src={p.imageUrl} alt={p.name} />}
-                        {p.categoryName && <span className="plan-card-v2-tag">{p.categoryName}</span>}
-                        <span className={`plan-card-v2-status ${p.closed ? "closed-tag" : "open"}`}>
-                          {p.closed ? "已截止" : "開放中"}
-                        </span>
+                {plansLoading ? (
+                  <div className="spinner">載入中…</div>
+                ) : (
+                  <div className="plan-grid">
+                    {plans.map((p) => (
+                      <div key={p.id} className={`plan-card-v2 ${p.closed ? "closed" : ""}`} onClick={() => openPlan(p)}>
+                        <div className="plan-card-v2-img">
+                          {p.imageUrl && <img src={p.imageUrl} alt={p.name} />}
+                          {p.categoryName && <span className="plan-card-v2-tag">{p.categoryName}</span>}
+                          <span className={`plan-card-v2-status ${p.closed ? "closed-tag" : "open"}`}>
+                            {p.closed ? "已截止" : "開放中"}
+                          </span>
+                        </div>
+                        <div className="plan-card-v2-body">
+                          <p className="plan-card-v2-name">{p.name}</p>
+                          {p.deadline && (
+                            <p className="plan-card-v2-meta">
+                              {p.closed ? "已於 " : "截止 "}
+                              {new Date(p.deadline).toLocaleString("zh-TW")}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div className="plan-card-v2-body">
-                        <p className="plan-card-v2-name">{p.name}</p>
-                        {p.deadline && (
-                          <p className="plan-card-v2-meta">
-                            {p.closed ? "已於 " : "截止 "}
-                            {new Date(p.deadline).toLocaleString("zh-TW")}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {!plansLoading && plans.length === 0 && <div className="spinner">沒有符合條件的企劃</div>}
-                </div>
+                    ))}
+                    {plans.length === 0 && <div className="spinner">沒有符合條件的企劃</div>}
+                  </div>
+                )}
               </div>
             )}
 
-            {view === "order" && activePlan && (
+            {view === "order" && productsLoading && (
+              <div className="spinner">載入中…</div>
+            )}
+
+            {view === "order" && !productsLoading && activePlan && (
               <div>
                 <h2 className="section-title">{activePlan.name}</h2>
                 {activePlan.closed && <div className="banner warn">此企劃已截止，無法新增訂單</div>}
@@ -633,44 +662,73 @@ export default function Home() {
                   </div>
                 </div>
 
-                {Object.entries(
-                  products.reduce<Record<string, Product[]>>((acc, p) => {
+                {(() => {
+                  const grouped = products.reduce<Record<string, Product[]>>((acc, p) => {
                     acc[p.name] = acc[p.name] || [];
                     acc[p.name].push(p);
                     return acc;
-                  }, {})
-                ).map(([name, styles]) => (
-                  <div className="group" key={name}>
-                    <div className="info" style={{ width: "100%" }}>
-                      <h4>{name}</h4>
-                      {styles.map((s) => {
-                        const key = `${s.name}||${s.style}`;
-                        const qty = cart[key] || 0;
-                        return (
-                          <div className="style-row" key={key}>
-                            {s.imageUrl ? (
-                              <img
-                                src={s.imageUrl}
-                                alt={s.style || name}
-                                className="style-img"
-                                onClick={() => setLightboxUrl(s.imageUrl!)}
-                              />
-                            ) : (
-                              <div className="style-img-empty" />
-                            )}
-                            <span className="style-name">{s.style || "單一款式"}</span>
-                            <span className="style-price">NT$ {fmt(s.price)}</span>
-                            <div className="stepper">
-                              <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(s.name, s.style, -1)}>－</button>
-                              <input className="qty" readOnly value={qty} />
-                              <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(s.name, s.style, 1)}>＋</button>
-                            </div>
+                  }, {});
+                  const productNames = Object.keys(grouped);
+                  const visibleEntries = Object.entries(grouped).filter(
+                    ([name]) => !productFilter || name === productFilter
+                  );
+                  return (
+                    <>
+                      {productNames.length > 1 && (
+                        <div className="filter-bar">
+                          <span
+                            className={`chip ${!productFilter ? "active" : ""}`}
+                            onClick={() => setProductFilter(null)}
+                          >
+                            全部
+                          </span>
+                          {productNames.map((name) => (
+                            <span
+                              key={name}
+                              className={`chip ${productFilter === name ? "active" : ""}`}
+                              onClick={() => setProductFilter(name)}
+                            >
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {visibleEntries.map(([name, styles]) => (
+                        <div className="group" key={name}>
+                          <div className="info" style={{ width: "100%" }}>
+                            <h4>{name}</h4>
+                            {styles.map((s) => {
+                              const key = `${s.name}||${s.style}`;
+                              const qty = cart[key] || 0;
+                              return (
+                                <div className="style-row" key={key}>
+                                  {s.imageUrl ? (
+                                    <img
+                                      src={s.imageUrl}
+                                      alt={s.style || name}
+                                      className="style-img"
+                                      onClick={() => setLightboxUrl(s.imageUrl!)}
+                                    />
+                                  ) : (
+                                    <div className="style-img-empty" />
+                                  )}
+                                  <span className="style-name">{s.style || "單一款式"}</span>
+                                  <span className="style-price">NT$ {fmt(s.price)}</span>
+                                  <div className="stepper">
+                                    <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(s.name, s.style, -1)}>－</button>
+                                    <input className="qty" readOnly value={qty} />
+                                    <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(s.name, s.style, 1)}>＋</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
 
                 <div className="footer-bar">
                   <span className="total">
@@ -689,8 +747,9 @@ export default function Home() {
             {view === "history" && (
               <div>
                 <h2 className="section-title">我的歷史訂單</h2>
-                {history.length === 0 && <div className="spinner">目前沒有訂單紀錄</div>}
-                {history.map((o) => (
+                {historyLoading && <div className="spinner">載入中…</div>}
+                {!historyLoading && history.length === 0 && <div className="spinner">目前沒有訂單紀錄</div>}
+                {!historyLoading && history.map((o) => (
                   <div className="hist-card" key={o.orderNo}>
                     <div className="hist-head">
                       <span className="hist-src">{o.planName}｜{o.source}｜{o.nickname}</span>
