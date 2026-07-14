@@ -276,7 +276,7 @@ export default function Home() {
   // ---- 麵包屑 ----
   const chain = getCategoryChain(selectedCategoryId);
   const breadcrumbParts: { label: string; onClick?: () => void }[] = [
-    { label: "全部企劃", onClick: () => goHome() },
+    { label: "全部", onClick: () => goHome() },
   ];
   chain.forEach((c) => {
     breadcrumbParts.push({ label: c.name, onClick: () => selectCategory(c.id) });
@@ -289,12 +289,12 @@ export default function Home() {
     const roots = categories.filter((c) => !c.parentId);
     return (
       <>
-        <p className="category-tree-title">企劃分類</p>
+
         <div
           className={`category-item root ${!selectedCategoryId ? "active" : ""}`}
           onClick={() => { selectCategory(null); if (closeAfterSelect) setMobileDrawerOpen(false); }}
         >
-          全部企劃
+          全部
         </div>
         {roots.map((root) => {
           const children = categories.filter((c) => c.parentId === root.id);
@@ -383,7 +383,7 @@ export default function Home() {
                 <button className="mibu-icon-btn mibu-search-icon-mobile" aria-label="搜尋" onClick={() => setSearchOpen(true)}>
                   <Search size={19} />
                 </button>
-                <button className="mibu-icon-btn" aria-label="會員" onClick={() => (identity ? undefined : requireIdentity(null))}>
+                <button className="mibu-icon-btn" aria-label="會員／我的訂單" onClick={openHistory}>
                   <UserCircle size={19} />
                 </button>
                 <div className="mibu-cart-wrap">
@@ -595,10 +595,6 @@ export default function Home() {
           </main>
         </div>
       )}
-
-      <div style={{ textAlign: "center", padding: "12px 16px" }}>
-        <a style={{ fontSize: 12, color: "var(--muted)", cursor: "pointer" }} onClick={openHistory}>查詢我的歷史訂單</a>
-      </div>
 
       <div className={`toast ${toast ? "show" : ""}`}>{toast}</div>
     </>
