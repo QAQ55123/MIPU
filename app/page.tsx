@@ -6,14 +6,16 @@ type Plan = { id: string; name: string; imageUrl?: string; codLimit: number; dea
 type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
 type CartItem = { name: string; style: string; qty: number };
 type Identity = { source: string; nickname: string; fbUrl: string } | null;
+type PendingAction = null | "order" | "history";
 
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("MAIN");
-  const [view, setView] = useState<"identity" | "plans" | "order" | "history">("identity");
+  const [view, setView] = useState<"identity" | "plans" | "order" | "history">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
   const [toast, setToast] = useState("");
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // identity form state
   const [source, setSource] = useState<"LINE" | "Discord">("LINE");
@@ -25,6 +27,7 @@ export default function Home() {
 
   // plans / order state
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({}); // key: name||style
@@ -33,6 +36,7 @@ export default function Home() {
 
   useEffect(() => {
     fetch("/api/config").then((r) => r.json()).then((d) => setMode(d.mode));
+    loadPlans();
   }, []);
 
   function showToast(msg: string) {
@@ -41,12 +45,15 @@ export default function Home() {
   }
 
   async function loadPlans() {
+    setPlansLoading(true);
     const r = await fetch("/api/plans");
     const d = await r.json();
     setPlans(d.plans || []);
+    setPlansLoading(false);
     setView("plans");
   }
 
+  // 逛企劃、看商品完全不需要登入；只有「送出訂單」「查歷史訂單」才會要求先選身分
   async function openPlan(p: Plan) {
     const r = await fetch(`/api/plans/${p.id}`);
     const d = await r.json();
@@ -54,6 +61,12 @@ export default function Home() {
     setProducts(d.products || []);
     setCart({});
     setView("order");
+  }
+
+  function requireIdentity(action: PendingAction) {
+    setPendingAction(action);
+    setAuthMsg("");
+    setView("identity");
   }
 
   async function onAuthNext() {
@@ -68,8 +81,9 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "登入失敗");
-      setIdentity({ source: "FB", nickname: d.fbName, fbUrl: d.fbUrl });
-      loadPlans();
+      const id = { source: "FB", nickname: d.fbName, fbUrl: d.fbUrl };
+      setIdentity(id);
+      afterAuthSuccess(id);
       return;
     }
 
@@ -84,9 +98,10 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
-      setIdentity({ source, nickname, fbUrl: d.fbUrl });
+      const id = { source, nickname, fbUrl: d.fbUrl };
+      setIdentity(id);
       setNeedRegister(false);
-      loadPlans();
+      afterAuthSuccess(id);
       return;
     }
 
@@ -102,8 +117,23 @@ export default function Home() {
       return;
     }
     if (!r.ok) return setAuthMsg(d.error || "登入失敗");
-    setIdentity({ source, nickname, fbUrl: d.fbUrl });
-    loadPlans();
+    const id = { source, nickname, fbUrl: d.fbUrl };
+    setIdentity(id);
+    afterAuthSuccess(id);
+  }
+
+  // 登入成功後，回到原本想做的事（送出訂單 / 查歷史），沒有的話就回企劃列表
+  function afterAuthSuccess(id: Identity) {
+    const action = pendingAction;
+    setPendingAction(null);
+    if (action === "order") {
+      setView("order");
+      showToast("身分驗證成功，請按「新增訂單」送出");
+    } else if (action === "history") {
+      openHistoryNow(id);
+    } else {
+      loadPlans();
+    }
   }
 
   function changeQty(name: string, style: string, delta: number) {
@@ -125,6 +155,10 @@ export default function Home() {
   }, 0);
 
   async function submitOrder() {
+    if (!identity) {
+      requireIdentity("order");
+      return;
+    }
     const items: CartItem[] = Object.entries(cart).map(([key, qty]) => {
       const [name, style] = key.split("||");
       return { name, style, qty };
@@ -151,9 +185,18 @@ export default function Home() {
   }
 
   async function openHistory() {
-    if (!identity) return;
+    if (!identity) {
+      requireIdentity("history");
+      return;
+    }
+    openHistoryNow(identity);
+  }
+
+  async function openHistoryNow(useIdentity?: Identity) {
+    const id = useIdentity || identity;
+    if (!id) return;
     const params = new URLSearchParams();
-    if (identity.fbUrl) params.set("fbUrl", identity.fbUrl);
+    if (id.fbUrl) params.set("fbUrl", id.fbUrl);
     const r = await fetch(`/api/orders?${params.toString()}`);
     const d = await r.json();
     setHistory(d.orders || []);
@@ -171,7 +214,7 @@ export default function Home() {
     const d = await r.json();
     if (!r.ok) return showToast(d.error || "取消失敗");
     showToast("已取消訂單");
-    openHistory();
+    openHistoryNow();
   }
 
   return (
@@ -182,18 +225,23 @@ export default function Home() {
       </div>
 
       <div className="layout">
-        {identity && (
-          <aside className="sidebar">
-            <button className="nav-btn" onClick={loadPlans}>企劃列表</button>
-            <button className="nav-btn" onClick={openHistory}>查詢我的歷史訂單</button>
-            <button className="nav-btn" onClick={() => { setIdentity(null); setView("identity"); }}>重新選擇身分</button>
-          </aside>
-        )}
+        <aside className="sidebar">
+          <button className="nav-btn" onClick={loadPlans}>企劃列表</button>
+          <button className="nav-btn" onClick={openHistory}>查詢我的歷史訂單</button>
+          {identity ? (
+            <button className="nav-btn" onClick={() => { setIdentity(null); setView("plans"); }}>重新選擇身分</button>
+          ) : (
+            <button className="nav-btn" onClick={() => requireIdentity(null)}>選擇身分登入</button>
+          )}
+        </aside>
 
         <main className="main">
           {view === "identity" && (
             <div className="auth-card">
+              <a className="auth-back-link" onClick={() => { setPendingAction(null); setView("plans"); }}>← 返回</a>
               <h2 className="section-title">{mode === "FB" ? "請填寫 FB 名字與連結" : "請選擇來源並填寫暱稱"}</h2>
+              {pendingAction === "order" && <div className="rules-box">送出訂單前，請先驗證你的身分</div>}
+              {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先驗證你的身分</div>}
 
               {mode === "MAIN" && (
                 <div className="id-row">
@@ -240,6 +288,7 @@ export default function Home() {
           {view === "plans" && (
             <div>
               <h2 className="section-title">選擇商品企劃</h2>
+              {plansLoading && <div className="spinner">載入中…</div>}
               <div className="plan-grid">
                 {plans.map((p) => (
                   <div key={p.id} className="plan-card" onClick={() => openPlan(p)}>
@@ -249,7 +298,7 @@ export default function Home() {
                     {p.deadline && <div className="plan-deadline">截止：{new Date(p.deadline).toLocaleString("zh-TW")}</div>}
                   </div>
                 ))}
-                {plans.length === 0 && <div className="spinner">目前沒有企劃</div>}
+                {!plansLoading && plans.length === 0 && <div className="spinner">目前沒有企劃</div>}
               </div>
             </div>
           )}
@@ -259,6 +308,7 @@ export default function Home() {
               <button className="btn secondary" onClick={() => setView("plans")}>&larr; 返回企劃列表</button>
               <h2 className="section-title">{activePlan.name}</h2>
               {activePlan.closed && <div className="banner warn">此企劃已截止，無法新增訂單</div>}
+              {!identity && <div className="rules-box">現在可以先逛逛選商品，按「新增訂單」時才需要登入身分</div>}
 
               <div className="id-row pay-row">
                 <span className="id-label">交易方式</span>
