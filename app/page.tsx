@@ -43,6 +43,7 @@ export default function Home() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [categoryQuickOpen, setCategoryQuickOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -55,6 +56,7 @@ export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({}); // key: name||style
   const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [selectedStyleByProduct, setSelectedStyleByProduct] = useState<Record<string, string>>({});
   const [payment, setPayment] = useState("匯款");
   const [history, setHistory] = useState<any[]>([]);
 
@@ -128,6 +130,7 @@ export default function Home() {
     setProducts(d.products || []);
     setCart({});
     setProductFilter(null);
+    setSelectedStyleByProduct({});
     setProductsLoading(false);
   }
 
@@ -361,14 +364,14 @@ export default function Home() {
     );
   }
 
-  function renderCategoryTree(closeAfterSelect: boolean) {
+  function renderCategoryTree(onAfterSelect?: () => void) {
     const roots = categories.filter((c) => !c.parentId);
     return (
       <>
 
         <div
           className={`category-item root ${!selectedCategoryId ? "active" : ""}`}
-          onClick={() => { selectCategory(null); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+          onClick={() => { selectCategory(null); onAfterSelect?.(); }}
         >
           全部
         </div>
@@ -380,7 +383,7 @@ export default function Home() {
             <div key={root.id}>
               <div
                 className={`category-item ${selectedCategoryId === root.id ? "active" : ""}`}
-                onClick={() => { selectCategory(root.id); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+                onClick={() => { selectCategory(root.id); onAfterSelect?.(); }}
               >
                 <span>{root.name}</span>
                 {hasChildren && (
@@ -395,7 +398,7 @@ export default function Home() {
                     <div
                       key={child.id}
                       className={`subcategory-item ${selectedCategoryId === child.id ? "active" : ""}`}
-                      onClick={() => { selectCategory(child.id); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+                      onClick={() => { selectCategory(child.id); onAfterSelect?.(); }}
                     >
                       {child.name}
                     </div>
@@ -442,7 +445,7 @@ export default function Home() {
                   aria-label="展開分類目錄"
                   onClick={() => {
                     if (isAccountArea) {
-                      goHome();
+                      setCategoryQuickOpen((v) => !v);
                     } else {
                       setSidebarOpen((v) => !v);
                       setMobileDrawerOpen((v) => !v);
@@ -602,12 +605,18 @@ export default function Home() {
             className={`category-sidebar-desktop ${isAccountArea ? "account-sidebar-active" : ""}`}
             style={!isAccountArea ? { display: sidebarOpen ? undefined : "none" } : undefined}
           >
-            {isAccountArea ? renderAccountNav(false) : renderCategoryTree(false)}
+            {isAccountArea ? renderAccountNav(false) : renderCategoryTree()}
           </aside>
 
           <div className={`category-drawer-mobile ${mobileDrawerOpen && !isAccountArea ? "open" : ""}`}>
-            <div className="category-drawer-panel">{renderCategoryTree(true)}</div>
+            <div className="category-drawer-panel">{renderCategoryTree(() => setMobileDrawerOpen(false))}</div>
           </div>
+
+          {isAccountArea && (
+            <div className={`category-drawer-mobile category-quick-drawer ${categoryQuickOpen ? "open" : ""}`}>
+              <div className="category-drawer-panel">{renderCategoryTree(() => setCategoryQuickOpen(false))}</div>
+            </div>
+          )}
 
           <main className="main" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
             {!isAccountArea && renderBreadcrumb()}
@@ -694,38 +703,58 @@ export default function Home() {
                         </div>
                       )}
 
-                      {visibleEntries.map(([name, styles]) => (
-                        <div className="group" key={name}>
-                          <div className="info" style={{ width: "100%" }}>
-                            <h4>{name}</h4>
-                            {styles.map((s) => {
-                              const key = `${s.name}||${s.style}`;
-                              const qty = cart[key] || 0;
-                              return (
-                                <div className="style-row" key={key}>
-                                  {s.imageUrl ? (
-                                    <img
-                                      src={s.imageUrl}
-                                      alt={s.style || name}
-                                      className="style-img"
-                                      onClick={() => setLightboxUrl(s.imageUrl!)}
-                                    />
-                                  ) : (
-                                    <div className="style-img-empty" />
-                                  )}
-                                  <span className="style-name">{s.style || "單一款式"}</span>
-                                  <span className="style-price">NT$ {fmt(s.price)}</span>
-                                  <div className="stepper">
-                                    <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(s.name, s.style, -1)}>－</button>
-                                    <input className="qty" readOnly value={qty} />
-                                    <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(s.name, s.style, 1)}>＋</button>
+                      {visibleEntries.map(([name, styles]) => {
+                        const currentStyle = selectedStyleByProduct[name] ?? styles[0].style;
+                        const current = styles.find((s) => s.style === currentStyle) || styles[0];
+                        const key = `${current.name}||${current.style}`;
+                        const qty = cart[key] || 0;
+                        return (
+                          <div className="product-card-v3" key={name}>
+                            <div className="product-gallery-v3">
+                              {current.imageUrl ? (
+                                <img
+                                  src={current.imageUrl}
+                                  alt={current.style || name}
+                                  onClick={() => setLightboxUrl(current.imageUrl!)}
+                                />
+                              ) : (
+                                <div className="product-gallery-v3-empty">尚無圖片</div>
+                              )}
+                            </div>
+                            <div className="product-info-v3">
+                              <h4>{name}</h4>
+                              <div className="product-price-v3">NT$ {fmt(current.price)}</div>
+
+                              {styles.length > 1 && (
+                                <>
+                                  <div className="product-info-v3-label">款式</div>
+                                  <div className="style-pills">
+                                    {styles.map((s) => (
+                                      <button
+                                        key={s.style}
+                                        className={`style-pill ${currentStyle === s.style ? "active" : ""}`}
+                                        onClick={() => setSelectedStyleByProduct((prev) => ({ ...prev, [name]: s.style }))}
+                                      >
+                                        {s.style || "單一款式"}
+                                        {(cart[`${s.name}||${s.style}`] || 0) > 0 && (
+                                          <span className="style-pill-badge">{cart[`${s.name}||${s.style}`]}</span>
+                                        )}
+                                      </button>
+                                    ))}
                                   </div>
-                                </div>
-                              );
-                            })}
+                                </>
+                              )}
+
+                              <div className="product-info-v3-label">數量</div>
+                              <div className="stepper stepper-lg">
+                                <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(current.name, current.style, -1)}>－</button>
+                                <input className="qty" readOnly value={qty} />
+                                <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </>
                   );
                 })()}
