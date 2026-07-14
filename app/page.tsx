@@ -17,10 +17,15 @@ const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("MAIN");
-  const [view, setView] = useState<"identity" | "plans" | "order" | "history">("plans");
+  const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
   const [toast, setToast] = useState("");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [accountCurrentPw, setAccountCurrentPw] = useState("");
+  const [accountNewPw, setAccountNewPw] = useState("");
+  const [accountConfirmPw, setAccountConfirmPw] = useState("");
+  const [accountMsg, setAccountMsg] = useState("");
+  const [accountSaving, setAccountSaving] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // identity form state
@@ -273,6 +278,37 @@ export default function Home() {
     openHistoryNow();
   }
 
+  async function changeAccountPassword() {
+    setAccountMsg("");
+    if (!identity) return;
+    if (!accountCurrentPw) return setAccountMsg("請輸入目前的密碼");
+    if (accountNewPw.length < 1) return setAccountMsg("請輸入新密碼");
+    if (accountNewPw !== accountConfirmPw) return setAccountMsg("兩次輸入的新密碼不一樣");
+
+    setAccountSaving(true);
+    try {
+      const body =
+        identity.source === "FB"
+          ? { mode: "FB", fbName: identity.nickname, fbUrl: identity.fbUrl, oldPassword: accountCurrentPw, newPassword: accountNewPw }
+          : { mode: "MAIN", source: identity.source, nickname: identity.nickname, password: accountCurrentPw, newPassword: accountNewPw };
+      const r = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) return setAccountMsg(d.error || "修改失敗");
+      setAccountMsg("密碼已更新");
+      setAccountCurrentPw("");
+      setAccountNewPw("");
+      setAccountConfirmPw("");
+    } catch {
+      setAccountMsg("網路連線失敗，請再試一次");
+    } finally {
+      setAccountSaving(false);
+    }
+  }
+
   function goHome() {
     setSelectedCategoryId(null);
     loadPlans(null, "");
@@ -289,6 +325,28 @@ export default function Home() {
   });
   if (view === "order" && activePlan) {
     breadcrumbParts.push({ label: activePlan.name });
+  }
+
+  const isAccountArea = view === "history" || view === "account";
+
+  function renderAccountNav(closeAfterSelect: boolean) {
+    return (
+      <>
+        <p className="category-tree-title">會員專區</p>
+        <div
+          className={`account-nav-item ${view === "history" ? "active" : ""}`}
+          onClick={() => { openHistoryNow(); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+        >
+          顯示歷史資料
+        </div>
+        <div
+          className={`account-nav-item ${view === "account" ? "active" : ""}`}
+          onClick={() => { setView("account"); setAccountMsg(""); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+        >
+          編輯會員資料
+        </div>
+      </>
+    );
   }
 
   function renderCategoryTree(closeAfterSelect: boolean) {
@@ -389,12 +447,49 @@ export default function Home() {
                 <button className="mibu-icon-btn mibu-search-icon-mobile" aria-label="搜尋" onClick={() => setSearchOpen(true)}>
                   <Search size={19} />
                 </button>
-                <button className="mibu-icon-btn" aria-label="會員／我的訂單" onClick={openHistory}>
-                  <UserCircle size={19} />
-                </button>
-                <div className="mibu-cart-wrap">
-                  <ShoppingCart size={19} color="var(--muted)" />
-                  {cartCount > 0 && <span className="mibu-cart-badge">{cartCount}</span>}
+                <div className="mibu-hover-wrap">
+                  <button className="mibu-icon-btn" aria-label="會員／我的訂單" onClick={openHistory}>
+                    <UserCircle size={19} />
+                  </button>
+                  <div className="mibu-hover-panel">
+                    {identity ? (
+                      <>
+                        <div className="mibu-hover-panel-title">{identity.nickname}</div>
+                        <div className="mibu-hover-panel-row"><span>來源</span><span>{identity.source}</span></div>
+                        <div className="mibu-hover-panel-row"><span>FB</span><span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{identity.fbUrl}</span></div>
+                      </>
+                    ) : (
+                      <div className="mibu-hover-panel-empty">尚未登入，點擊查看歷史訂單時會先要求驗證身分</div>
+                    )}
+                  </div>
+                </div>
+                <div className="mibu-hover-wrap">
+                  <div className="mibu-cart-wrap">
+                    <ShoppingCart size={19} color="var(--muted)" />
+                    {cartCount > 0 && <span className="mibu-cart-badge">{cartCount}</span>}
+                  </div>
+                  <div className="mibu-hover-panel">
+                    <div className="mibu-hover-panel-title">目前選購</div>
+                    {cartCount === 0 ? (
+                      <div className="mibu-hover-panel-empty">購物車是空的</div>
+                    ) : (
+                      <>
+                        {Object.entries(cart).map(([key, qty]) => {
+                          const [name, style] = key.split("||");
+                          const p = products.find((pp) => pp.name === name && pp.style === style);
+                          return (
+                            <div className="mibu-hover-panel-row" key={key}>
+                              <span>{name}{style ? `（${style}）` : ""} x{qty}</span>
+                              <span>NT$ {fmt((p?.price || 0) * qty)}</span>
+                            </div>
+                          );
+                        })}
+                        <div className="mibu-hover-panel-row" style={{ borderTop: "1px dashed var(--line)", marginTop: 6, paddingTop: 6, fontWeight: 600, color: "var(--text)" }}>
+                          <span>合計</span><span>NT$ {fmt(cartTotal)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
                 {identity ? (
                   <button className="mibu-auth-link" onClick={() => { setIdentity(null); goHome(); }}>登出</button>
@@ -485,15 +580,15 @@ export default function Home() {
       ) : (
         <div style={{ display: "flex", position: "relative", maxWidth: 1200, margin: "0 auto" }}>
           <aside className="category-sidebar-desktop" style={{ display: sidebarOpen ? undefined : "none" }}>
-            {renderCategoryTree(false)}
+            {isAccountArea ? renderAccountNav(false) : renderCategoryTree(false)}
           </aside>
 
           <div className={`category-drawer-mobile ${mobileDrawerOpen ? "open" : ""}`}>
-            <div className="category-drawer-panel">{renderCategoryTree(true)}</div>
+            <div className="category-drawer-panel">{isAccountArea ? renderAccountNav(true) : renderCategoryTree(true)}</div>
           </div>
 
           <main className="main" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
-            {renderBreadcrumb()}
+            {!isAccountArea && renderBreadcrumb()}
 
             {view === "plans" && (
               <div>
@@ -593,7 +688,6 @@ export default function Home() {
 
             {view === "history" && (
               <div>
-                <button className="btn secondary" onClick={goHome}>&larr; 返回企劃列表</button>
                 <h2 className="section-title">我的歷史訂單</h2>
                 {history.length === 0 && <div className="spinner">目前沒有訂單紀錄</div>}
                 {history.map((o) => (
@@ -614,6 +708,35 @@ export default function Home() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {view === "account" && identity && (
+              <div>
+                <h2 className="section-title">編輯會員資料</h2>
+                <div className="auth-card" style={{ marginTop: 0 }}>
+                  <div className="id-row"><span className="id-label">來源</span><span>{identity.source}</span></div>
+                  <div className="id-row"><span className="id-label">暱稱</span><span>{identity.nickname}</span></div>
+                  <div className="id-row"><span className="id-label">FB 網址</span><span style={{ wordBreak: "break-all" }}>{identity.fbUrl}</span></div>
+                </div>
+
+                <div className="auth-card">
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>修改密碼</h3>
+                  <div className="id-row">
+                    <span className="id-label">目前密碼</span>
+                    <input type="password" value={accountCurrentPw} onChange={(e) => setAccountCurrentPw(e.target.value)} />
+                  </div>
+                  <div className="id-row">
+                    <span className="id-label">新密碼</span>
+                    <input type="password" value={accountNewPw} onChange={(e) => setAccountNewPw(e.target.value)} />
+                  </div>
+                  <div className="id-row">
+                    <span className="id-label">確認新密碼</span>
+                    <input type="password" value={accountConfirmPw} onChange={(e) => setAccountConfirmPw(e.target.value)} />
+                  </div>
+                  <div className="auth-msg">{accountMsg}</div>
+                  <button className="btn" onClick={changeAccountPassword} disabled={accountSaving}>{accountSaving ? "儲存中…" : "更新密碼"}</button>
+                </div>
               </div>
             )}
           </main>
