@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const supabase = getSupabaseAdmin();
 
@@ -20,24 +24,27 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const closed = plan.deadline ? new Date(plan.deadline).getTime() < Date.now() : false;
 
-  return NextResponse.json({
-    plan: {
-      id: plan.id,
-      name: plan.name,
-      imageUrl: plan.image_url,
-      codLimit: plan.cod_limit || 0,
-      deadline: plan.deadline,
-      closed,
-      categoryId: plan.category_id,
-      categoryName: plan.categories?.name || null,
-      categoryParentId: plan.categories?.parent_id || null,
+  return NextResponse.json(
+    {
+      plan: {
+        id: plan.id,
+        name: plan.name,
+        imageUrl: plan.image_url,
+        codLimit: plan.cod_limit || 0,
+        deadline: plan.deadline,
+        closed,
+        categoryId: plan.category_id,
+        categoryName: plan.categories?.name || null,
+        categoryParentId: plan.categories?.parent_id || null,
+      },
+      products: (products || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        style: p.style || "",
+        price: Number(p.price),
+        imageUrl: p.image_url,
+      })),
     },
-    products: (products || []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      style: p.style || "",
-      price: Number(p.price),
-      imageUrl: p.image_url,
-    })),
-  });
+    { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } }
+  );
 }

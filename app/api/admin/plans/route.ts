@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession } from "@/lib/adminAuth";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+
 /** 後台用：列出所有企劃（不受前台顯示對象限制），含分類名稱 */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);

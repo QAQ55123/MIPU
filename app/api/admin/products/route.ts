@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession } from "@/lib/adminAuth";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+
 /** 後台用：列出某個企劃底下的所有商品 ?pw=&planId= */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);

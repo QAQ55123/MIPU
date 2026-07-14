@@ -3,6 +3,10 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { genOrderNo, normFb, fmtMoney, getMode } from "@/lib/util";
 import { notifyDiscord } from "@/lib/discord";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+
 /** 新增訂單 */
 export async function POST(req: Request) {
   const body = await req.json();

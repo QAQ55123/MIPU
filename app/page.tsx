@@ -65,7 +65,7 @@ export default function Home() {
     const params = new URLSearchParams();
     if (categoryId) params.set("categoryId", categoryId);
     if (q) params.set("q", q);
-    const r = await fetch(`/api/plans?${params.toString()}`);
+    const r = await fetch(`/api/plans?${params.toString()}`, { cache: "no-store" });
     const d = await r.json();
     setPlans(d.plans || []);
     setPlansLoading(false);
@@ -109,7 +109,7 @@ export default function Home() {
 
   // 逛企劃、看商品完全不需要登入；只有「送出訂單」「查歷史訂單」才會要求先選身分
   async function openPlan(p: Plan) {
-    const r = await fetch(`/api/plans/${p.id}`);
+    const r = await fetch(`/api/plans/${p.id}`, { cache: "no-store" });
     const d = await r.json();
     setActivePlan(d.plan);
     setProducts(d.products || []);
@@ -528,7 +528,6 @@ export default function Home() {
                 <button className="btn secondary" onClick={goHome}>&larr; 返回企劃列表</button>
                 <h2 className="section-title">{activePlan.name}</h2>
                 {activePlan.closed && <div className="banner warn">此企劃已截止，無法新增訂單</div>}
-                {!identity && <div className="rules-box">現在可以先逛逛選商品，按「新增訂單」時才需要登入身分</div>}
 
                 <div className="id-row pay-row">
                   <span className="id-label">交易方式</span>

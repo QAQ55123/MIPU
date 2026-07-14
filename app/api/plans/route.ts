@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getMode } from "@/lib/util";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
 export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
   const mode = getMode();
@@ -74,5 +78,5 @@ export async function GET(req: Request) {
       categoryParentId: p.categories?.parent_id || null,
     }));
 
-  return NextResponse.json({ plans });
+  return NextResponse.json({ plans }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } });
 }
