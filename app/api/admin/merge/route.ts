@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { requireAdmin } from "@/lib/util";
+import { requireOwnerSession } from "@/lib/adminAuth";
 
 /** 把 removeId 的資料併進 keepId，然後刪除 removeId（訂單改指向 keep 的 fb_url_norm） */
 export async function POST(req: Request) {
   const body = await req.json();
   try {
-    requireAdmin(body.pw);
+    requireOwnerSession(req);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }

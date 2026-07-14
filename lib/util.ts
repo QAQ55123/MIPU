@@ -32,14 +32,6 @@ export function fmtMoney(n: number): string {
   return new Intl.NumberFormat("zh-TW").format(Math.round(n));
 }
 
-/** 驗證後台密碼，不符合就丟錯 */
-export function requireAdmin(pw: string) {
-  const real = process.env.ADMIN_PW || "";
-  if (!real || pw !== real) {
-    throw new Error("後台密碼錯誤或尚未設定");
-  }
-}
-
 export function getMode(): "MAIN" | "FB" {
   return (process.env.FRONTEND_MODE === "FB" ? "FB" : "MAIN");
 }

@@ -13,7 +13,9 @@
 ## 一、建立 Supabase 專案（免費）
 
 1. 到 https://supabase.com 註冊、建立新專案
-2. 進入專案的 **SQL Editor**，貼上 `supabase/schema.sql` 的全部內容並執行
+2. 進入專案的 **SQL Editor**，貼上 `supabase/schema.sql` 的全部內容並執行（這會一併建好資料表和圖片儲存空間）
+（⚠️ 如果你之前已經執行過一次舊版的 `schema.sql`，資料庫裡已經有資料了，不要重跑整份 schema.sql，改成依序執行 `supabase/migration_add_categories.sql` 和 `supabase/migration_add_storage.sql` 這兩個補丁檔即可，不會影響現有資料。）
+
 3. 到 **Project Settings → API**，複製：
    - `Project URL` → 對應 `NEXT_PUBLIC_SUPABASE_URL`
    - `anon public` key → 對應 `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -30,23 +32,49 @@ npm run dev
 
 打開 http://localhost:3000 應該就能看到下單頁；http://localhost:3000/admin 是後台。
 
-## 三、匯入原本的企劃 / 商品資料
+## 三、管理者帳號怎麼運作（兩種權限等級）
 
-目前 `plans` / `products` 兩張表是空的。有兩個方式建立資料：
+後台不是「一組密碼大家共用」，改成**每個管理者有自己獨立的帳號密碼**，跟一般會員完全分開；而且分兩種權限等級：
 
-1. **手動**：到 Supabase 後台的 **Table Editor**，直接在 `plans`、`products` 表格裡新增列。
-2. **從舊試算表匯入**：把「企劃清單」分頁與各企劃的價目表分頁分別匯出成 CSV，用 Supabase 的 Table Editor →「Import data from CSV」匯入（欄位名稱需對應 schema，例如 `name`、`price`、`style`、`image_url`）。
+| 等級 | 能做什麼 |
+|---|---|
+| **owner**（最高權限，通常就是你自己） | 分類/企劃/商品管理 ＋ 會員相關工具（疑似重複、合併會員、重設密碼） |
+| **staff**（一般管理者） | 只能管理分類/企劃/商品，**看不到、也無法呼叫**會員相關工具（前端隱藏，後端 API 也會擋） |
 
-（會員與訂單資料通常建議一頁新的開始，不建議把舊的密碼雜湊直接搬過來，因為舊系統的雜湊鹽值 `PW_SECRET` 可能不同，會對不起來。）
+**設定方式：**
 
-## 四、部署到 Vercel（免費）
+1. 你自己先設定兩組邀請碼（寫在 `.env.local` / Vercel 環境變數）：
+   - `ADMIN_INVITE_CODE_OWNER`：只給你自己或極少數信任的共同經營者
+   - `ADMIN_INVITE_CODE_STAFF`：給一般協助管理商品/企劃的人
+2. 把 `你的網站/admin/register` 這個網址，連同**對應的邀請碼**給對方——邀請碼決定他拿到的權限等級，對方在註冊畫面**不能自己選**權限
+3. 對方輸入帳號、密碼、邀請碼，建立帳號後自動登入
+4. 之後大家都是各自到 `你的網站/admin` 用自己的帳密登入
+5. 登入後會拿到一張「通行證」（session），存在瀏覽器的 cookie 裡，**8 小時後會自動失效**，要求重新輸入帳密登入
+
+會員資料本身如果需要手動修正，直接到 Supabase 的 Table Editor 改 `members` 表即可，不需要特地做一個編輯介面——這也是為什麼把這類危險操作限制在 owner 帳號的原因：一般管理者完全不該有機會動到會員資料。
+
+另外還需要一組 **`ADMIN_TOKEN_SECRET`**：這是用來簽發、驗證上面那張「通行證」的密鑰，隨便打一串長的亂碼即可，只要不外流就好，不需要背下來。
+
+管理者身分**跟會員（前台下單用的身分）完全無關**——同一個人如果想自己下單買東西，還是要跟一般客人一樣走 LINE/Discord/FB 的身分登記流程。
+
+## 四、匯入原本的企劃 / 商品資料
+
+不用再手動去 Supabase 後台一筆一筆打了——部署完成後，直接到 `/admin`（後台）頁面，用密碼登入，裡面有完整的：
+
+- **分類管理**：新增/編輯/刪除分類與子分類（下拉選單選上層分類，不用碰 UUID）
+- **企劃管理**：新增/編輯/刪除企劃，圖片直接選檔案上傳（存到 Supabase Storage，自動填好網址）
+- **商品管理**：點企劃旁邊的「管理商品」，新增/編輯/刪除該企劃底下的商品款式，圖片一樣直接上傳
+
+如果你還是想直接在 Supabase 後台的 Table Editor 手動編輯資料也可以，兩種方式互通，資料庫是同一份。
+
+## 五、部署到 Vercel（免費）
 
 1. 把這個資料夾 push 到你自己的 GitHub repo
 2. 到 https://vercel.com 用 GitHub 登入，選擇這個 repo 匯入
 3. 在 Vercel 專案的 **Settings → Environment Variables**，把 `.env.local` 裡的每一項都加進去
 4. 部署完成後會拿到一個 `https://your-project.vercel.app` 網址；也可以在 Vercel 裡綁自訂網域
 
-## 五、兩個前台（一般 / FB）怎麼處理
+## 六、兩個前台（一般 / FB）怎麼處理
 
 原本 GAS 版本是「複製兩個獨立專案」，一個設 `FRONTEND_MODE=MAIN`、一個設 `FRONTEND_MODE=FB`。
 在這個新架構，建議做法：
@@ -54,7 +82,7 @@ npm run dev
 - **選項 A（最簡單）**：直接部署兩次（兩個 Vercel 專案，指向同一個 Supabase），只有 `FRONTEND_MODE` 環境變數不同
 - **選項 B**：改用網址參數或子網域判斷模式（例如 `fb.yourdomain.com`），但這需要再加一點程式邏輯，可以之後再擴充
 
-## 六、已知限制 / 建議之後加強的地方
+## 七、已知限制 / 建議之後加強的地方
 
 - **搶購時的併發鎖定**：原本 GAS 用 `LockService` 序列化寫入；目前版本沒有做到完全一致的鎖定，正常使用量沒問題，但如果會有「同時有 50 人搶最後 1 件」這種瞬間流量，建議之後加上 Supabase 的 Postgres function + `SELECT ... FOR UPDATE` 做真正的交易鎖定
 - **備份**：原本「立即備份整份試算表」的功能，在 Postgres 世界對應的是 Supabase 內建的每日自動備份（免費方案有 7 天內的 Point-in-Time 概念，付費方案更完整），不需要自己刻備份按鈕

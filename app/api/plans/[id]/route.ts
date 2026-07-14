@@ -6,7 +6,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const { data: plan, error: planErr } = await supabase
     .from("plans")
-    .select("*")
+    .select("*, categories(id, name, parent_id)")
     .eq("id", params.id)
     .single();
   if (planErr || !plan) return NextResponse.json({ error: "找不到企劃" }, { status: 404 });
@@ -28,6 +28,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       codLimit: plan.cod_limit || 0,
       deadline: plan.deadline,
       closed,
+      categoryId: plan.category_id,
+      categoryName: plan.categories?.name || null,
+      categoryParentId: plan.categories?.parent_id || null,
     },
     products: (products || []).map((p) => ({
       id: p.id,

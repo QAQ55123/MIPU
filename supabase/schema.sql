@@ -3,6 +3,26 @@
 
 create extension if not exists "pgcrypto";
 
+-- 管理者（後台帳號，跟 members 完全分開，互不影響）
+-- role: 'owner'（最高權限，能碰會員相關工具）／'staff'（一般管理者，不能碰會員資料）
+create table if not exists admins (
+  id            uuid primary key default gen_random_uuid(),
+  username      text not null unique,
+  password_hash text not null,
+  role          text not null default 'staff' check (role in ('owner', 'staff')),
+  created_at    timestamptz default now()
+);
+
+-- 分類（兩層：分類 > 子分類。子分類的 parent_id 指向上層分類；頂層分類 parent_id 為 null）
+create table if not exists categories (
+  id            uuid primary key default gen_random_uuid(),
+  name          text not null,
+  parent_id     uuid references categories(id) on delete cascade,
+  sort_order    int default 0,
+  created_at    timestamptz default now()
+);
+create index if not exists idx_categories_parent on categories (parent_id);
+
 -- 企劃（原本「企劃清單」分頁）
 create table if not exists plans (
   id            uuid primary key default gen_random_uuid(),
@@ -11,9 +31,11 @@ create table if not exists plans (
   image_url     text,                        -- 企劃圖片
   cod_limit     numeric default 0,           -- 取付上限（0 或負數 = 不開放取付）
   visible_to    text[] default '{}',         -- 顯示對象，例如 {LINE,DC}；空陣列 = 全部看得到
+  category_id   uuid references categories(id) on delete set null,  -- 歸屬的分類或子分類（可為任一層）
   sort_order    int default 0,
   created_at    timestamptz default now()
 );
+create index if not exists idx_plans_category on plans (category_id);
 
 -- 商品（原本每個企劃分頁裡的價目表）
 create table if not exists products (
@@ -88,3 +110,8 @@ $$ language plpgsql;
 drop trigger if exists trg_orders_updated_at on orders;
 create trigger trg_orders_updated_at before update on orders
   for each row execute function set_updated_at();
+
+-- 商品圖片儲存空間（公開讀取，只有後台用 service role 金鑰才能上傳）
+insert into storage.buckets (id, name, public)
+values ('product-images', 'product-images', true)
+on conflict (id) do nothing;

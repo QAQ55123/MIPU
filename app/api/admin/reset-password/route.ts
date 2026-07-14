@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { requireAdmin, hashPw, normFb } from "@/lib/util";
+import { hashPw, normFb } from "@/lib/util";
+import { requireOwnerSession } from "@/lib/adminAuth";
 
 /** body: { pw, fbUrl } 或 { pw, source, nickname } → 密碼重設為 0000 */
 export async function POST(req: Request) {
   const body = await req.json();
   try {
-    requireAdmin(body.pw);
+    requireOwnerSession(req);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }

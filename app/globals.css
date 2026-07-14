@@ -1,12 +1,14 @@
 :root {
-  --primary: #2563eb;
-  --primary-d: #1d4ed8;
-  --bg: #f5f6f8;
-  --card: #ffffff;
-  --line: #e5e7eb;
-  --text: #1f2937;
-  --muted: #6b7280;
+  --primary: #33415C;
+  --primary-d: #283349;
+  --bg: #FAF8F2;
+  --card: #FFFEFB;
+  --line: #EDE9DC;
+  --text: #2C2C2A;
+  --muted: #9A9787;
   --danger: #dc2626;
+  --tag-bg: #EADFC8;
+  --tag-text: #8A6D3B;
 }
 * { box-sizing: border-box; }
 html, body {
@@ -94,6 +96,112 @@ html, body {
 .hist-item { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 2px 0; }
 .hist-total { text-align: right; font-size: 13px; font-weight: 600; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .hist-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+/* ---- 新版頂欄 ---- */
+.mibu-header {
+  position: sticky; top: 0; z-index: 30; height: 56px;
+  background: var(--card); border-bottom: 1px solid var(--line);
+}
+.mibu-header-inner { position: relative; height: 56px; max-width: 1200px; margin: 0 auto; }
+.mibu-header-row {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; gap: 12px;
+}
+.mibu-logo-group { display: flex; align-items: center; gap: 10px; }
+.mibu-logo { font-size: 17px; font-weight: 600; color: var(--primary); letter-spacing: 1px; }
+.mibu-icon-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 20px; padding: 4px; display: flex; }
+.mibu-icon-btn:hover { color: var(--text); }
+.mibu-right-group { display: flex; align-items: center; gap: 16px; }
+.mibu-auth-link {
+  font-size: 13px; color: var(--primary); font-weight: 500; cursor: pointer;
+  border: 1px solid var(--line); padding: 6px 14px; border-radius: 999px; white-space: nowrap; background: none;
+}
+.mibu-cart-wrap { position: relative; display: flex; }
+.mibu-cart-badge {
+  position: absolute; top: -6px; right: -8px; background: #D85A30; color: #fff;
+  font-size: 10px; font-weight: 600; min-width: 16px; height: 16px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center; padding: 0 3px;
+}
+.mibu-search-desktop {
+  display: flex; align-items: center; gap: 6px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; width: 220px;
+}
+.mibu-search-desktop input {
+  border: none; background: transparent; outline: none; font-size: 12.5px; color: var(--text); width: 100%;
+}
+.mibu-search-mobile-bar {
+  display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--card); width: 100%;
+}
+.mibu-search-mobile-bar input {
+  flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-size: 13px; color: var(--text);
+}
+@media (max-width: 760px) {
+  .mibu-search-desktop { display: none; }
+}
+@media (min-width: 761px) {
+  .mibu-search-icon-mobile { display: none; }
+}
+
+/* ---- 分類目錄 ---- */
+.category-tree-title { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 1px; margin: 0 6px 10px; }
+.category-item {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; color: var(--text); padding: 8px 8px; border-radius: 8px; cursor: pointer;
+}
+.category-item:hover { background: var(--bg); }
+.category-item.active { color: var(--primary); font-weight: 600; }
+.category-item.root { font-weight: 600; color: var(--primary); }
+.subcategory-item {
+  font-size: 12.5px; color: var(--muted); padding: 7px 8px 7px 18px; border-radius: 8px; cursor: pointer;
+}
+.subcategory-item:hover { background: var(--bg); }
+.subcategory-item.active { color: var(--primary); font-weight: 600; }
+
+.category-sidebar-desktop {
+  flex: 0 0 180px; padding: 20px 12px; border-right: 1px solid var(--line);
+}
+@media (max-width: 760px) {
+  .category-sidebar-desktop { display: none; }
+}
+
+.category-drawer-mobile {
+  display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(44,44,42,0.4); z-index: 25;
+}
+.category-drawer-mobile.open { display: block; }
+.category-drawer-panel { background: var(--card); padding: 12px; border-bottom: 1px solid var(--line); }
+@media (min-width: 761px) {
+  .category-drawer-mobile { display: none !important; }
+}
+
+/* ---- 麵包屑 ---- */
+.breadcrumb-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0; font-size: 12.5px; margin-bottom: 14px; }
+.breadcrumb-item { color: var(--primary); font-weight: 500; cursor: pointer; }
+.breadcrumb-item.current { color: var(--muted); font-weight: 400; cursor: default; }
+.breadcrumb-sep { color: #C7C3B4; font-size: 15px; margin: 0 6px; }
+
+/* ---- 企劃卡片 v2（含分類標籤） ---- */
+.plan-card-v2 { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; }
+.plan-card-v2:hover { box-shadow: 0 4px 14px rgba(0,0,0,.06); }
+.plan-card-v2.closed { opacity: 0.6; }
+.plan-card-v2-img {
+  position: relative; height: 130px; background: #F2E9D8;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.plan-card-v2-img img { width: 100%; height: 100%; object-fit: cover; }
+.plan-card-v2-tag {
+  position: absolute; top: 8px; left: 8px; font-size: 10px; font-weight: 600;
+  background: var(--tag-bg); color: var(--tag-text); padding: 3px 8px; border-radius: 5px;
+}
+.plan-card-v2-status {
+  position: absolute; top: 8px; right: 8px; font-size: 10px; font-weight: 600;
+  padding: 3px 8px; border-radius: 999px;
+}
+.plan-card-v2-status.open { background: #EAF3DE; color: #27500A; }
+.plan-card-v2-status.closed-tag { background: #FCEBEB; color: #791F1F; }
+.plan-card-v2-body { padding: 12px 14px; }
+.plan-card-v2-name { font-size: 14px; color: var(--text); margin: 0 0 4px; }
+.plan-card-v2-meta { font-size: 11.5px; color: var(--muted); margin: 0; }
 
 .spinner { text-align: center; padding: 40px; color: var(--muted); }
 .hidden { display: none; }

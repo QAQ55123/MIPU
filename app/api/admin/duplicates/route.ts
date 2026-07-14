@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { requireAdmin } from "@/lib/util";
+import { requireOwnerSession } from "@/lib/adminAuth";
 
 /** 找出「同暱稱卻不同 FB」的疑似重複會員，寫進 suspected_duplicates 表 */
 export async function POST(req: Request) {
   const body = await req.json();
   try {
-    requireAdmin(body.pw);
+    requireOwnerSession(req);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }
