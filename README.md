@@ -32,7 +32,20 @@ npm run dev
 
 打開 http://localhost:3000 應該就能看到下單頁；http://localhost:3000/admin 是後台。
 
-## 三、管理者帳號怎麼運作（兩種權限等級）
+## 三、Email 功能（信箱驗證、忘記密碼）
+
+用 [Resend](https://resend.com) 寄信，免費額度每月 3000 封，對這種規模的系統很夠用：
+
+1. 到 https://resend.com 註冊帳號
+2. 建立一組 **API Key**，填到 `RESEND_API_KEY`
+3. 寄件地址 `EMAIL_FROM`：還沒有自己網域的話，先用 Resend 內建的測試地址 `onboarding@resend.dev` 即可（收件人看到的寄件人名稱可以自訂，例如 `米舖 <onboarding@resend.dev>`）；之後有自己的網域可以到 Resend 後台驗證網域，換成 `你的名字@你的網域`
+4. `NEXT_PUBLIC_SITE_URL` 填你的正式網址（例如 `https://mibu-app.vercel.app`），寄出的信裡連結會用到這個網址
+
+**後台管理者**：註冊時多填一個 Email，會收到一封驗證信；忘記密碼時到 `/admin/forgot-password` 輸入 Email 申請重設連結。
+
+**一般會員**：註冊時 Email 是**選填**的，填了才能用 `/forgot-password` 找回密碼；沒填的話，前台原本「換裝置用預設密碼 0000 登入」的方式還是能用，不受影響。
+
+## 四、管理者帳號怎麼運作（兩種權限等級）
 
 後台不是「一組密碼大家共用」，改成**每個管理者有自己獨立的帳號密碼**，跟一般會員完全分開；而且分兩種權限等級：
 
@@ -57,7 +70,7 @@ npm run dev
 
 管理者身分**跟會員（前台下單用的身分）完全無關**——同一個人如果想自己下單買東西，還是要跟一般客人一樣走 LINE/Discord/FB 的身分登記流程。
 
-## 四、匯入原本的企劃 / 商品資料
+## 五、匯入原本的企劃 / 商品資料
 
 不用再手動去 Supabase 後台一筆一筆打了——部署完成後，直接到 `/admin`（後台）頁面，用密碼登入，裡面有完整的：
 
@@ -67,14 +80,14 @@ npm run dev
 
 如果你還是想直接在 Supabase 後台的 Table Editor 手動編輯資料也可以，兩種方式互通，資料庫是同一份。
 
-## 五、部署到 Vercel（免費）
+## 六、部署到 Vercel（免費）
 
 1. 把這個資料夾 push 到你自己的 GitHub repo
 2. 到 https://vercel.com 用 GitHub 登入，選擇這個 repo 匯入
 3. 在 Vercel 專案的 **Settings → Environment Variables**，把 `.env.local` 裡的每一項都加進去
 4. 部署完成後會拿到一個 `https://your-project.vercel.app` 網址；也可以在 Vercel 裡綁自訂網域
 
-## 六、兩個前台（一般 / FB）怎麼處理
+## 七、兩個前台（一般 / FB）怎麼處理
 
 原本 GAS 版本是「複製兩個獨立專案」，一個設 `FRONTEND_MODE=MAIN`、一個設 `FRONTEND_MODE=FB`。
 在這個新架構，建議做法：
@@ -82,7 +95,7 @@ npm run dev
 - **選項 A（最簡單）**：直接部署兩次（兩個 Vercel 專案，指向同一個 Supabase），只有 `FRONTEND_MODE` 環境變數不同
 - **選項 B**：改用網址參數或子網域判斷模式（例如 `fb.yourdomain.com`），但這需要再加一點程式邏輯，可以之後再擴充
 
-## 七、已知限制 / 建議之後加強的地方
+## 八、已知限制 / 建議之後加強的地方
 
 - **搶購時的併發鎖定**：原本 GAS 用 `LockService` 序列化寫入；目前版本沒有做到完全一致的鎖定，正常使用量沒問題，但如果會有「同時有 50 人搶最後 1 件」這種瞬間流量，建議之後加上 Supabase 的 Postgres function + `SELECT ... FOR UPDATE` 做真正的交易鎖定
 - **備份**：原本「立即備份整份試算表」的功能，在 Postgres 世界對應的是 Supabase 內建的每日自動備份（免費方案有 7 天內的 Point-in-Time 概念，付費方案更完整），不需要自己刻備份按鈕

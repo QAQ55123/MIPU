@@ -6,11 +6,17 @@ create extension if not exists "pgcrypto";
 -- 管理者（後台帳號，跟 members 完全分開，互不影響）
 -- role: 'owner'（最高權限，能碰會員相關工具）／'staff'（一般管理者，不能碰會員資料）
 create table if not exists admins (
-  id            uuid primary key default gen_random_uuid(),
-  username      text not null unique,
-  password_hash text not null,
-  role          text not null default 'staff' check (role in ('owner', 'staff')),
-  created_at    timestamptz default now()
+  id                    uuid primary key default gen_random_uuid(),
+  username              text not null unique,
+  email                 text unique,
+  email_verified         boolean not null default false,
+  password_hash         text not null,
+  role                  text not null default 'staff' check (role in ('owner', 'staff')),
+  verify_token          text,
+  verify_token_expires  timestamptz,
+  reset_token           text,
+  reset_token_expires   timestamptz,
+  created_at            timestamptz default now()
 );
 
 -- 分類（兩層：分類 > 子分類。子分類的 parent_id 指向上層分類；頂層分類 parent_id 為 null）
@@ -56,11 +62,15 @@ create table if not exists members (
   line_nick     text,
   discord_nick  text,
   fb_nick       text,                        -- FB 前台顯示用名字
+  email         text,                        -- 選填，用來忘記密碼時找回帳號、或聯繫不上時使用
   password_hash text not null,               -- SHA-256(fb_url_norm|password|salt)
+  reset_token          text,
+  reset_token_expires  timestamptz,
   created_at    timestamptz default now()
 );
 create index if not exists idx_members_line_nick on members (lower(line_nick));
 create index if not exists idx_members_discord_nick on members (lower(discord_nick));
+create unique index if not exists idx_members_email on members (lower(email)) where email is not null;
 
 -- 訂單（一張訂單一筆，品項另外存 order_items）
 create table if not exists orders (
