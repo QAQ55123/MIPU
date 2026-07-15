@@ -769,6 +769,16 @@ export default function Home() {
 
                   return (
                     <div className="product-card-v3">
+                      <div className="product-title-block">
+                        <h2 className="product-plan-title">{activePlan.name}</h2>
+                        {activePlan.deadline && (
+                          <div className="product-plan-deadline">
+                            {activePlan.closed ? "已於 " : "截止 "}
+                            {new Date(activePlan.deadline).toLocaleString("zh-TW")}
+                          </div>
+                        )}
+                      </div>
+
                       <div className="product-gallery-v3">
                         {current.imageUrl ? (
                           <img
@@ -782,13 +792,6 @@ export default function Home() {
                       </div>
 
                       <div className="product-info-v3">
-                        <h2 className="product-plan-title">{activePlan.name}</h2>
-                        {activePlan.deadline && (
-                          <div className="product-plan-deadline">
-                            {activePlan.closed ? "已於 " : "截止 "}
-                            {new Date(activePlan.deadline).toLocaleString("zh-TW")}
-                          </div>
-                        )}
 
                         <div className="product-price-row">
                           <span className="product-price-v3">NT$ {fmt(current.price)}</span>
