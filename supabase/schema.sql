@@ -19,6 +19,16 @@ create table if not exists admins (
   created_at            timestamptz default now()
 );
 
+-- 收藏清單（會員收藏的企劃）
+create table if not exists favorites (
+  id          uuid primary key default gen_random_uuid(),
+  member_id   uuid not null references members(id) on delete cascade,
+  plan_id     uuid not null references plans(id) on delete cascade,
+  created_at  timestamptz default now(),
+  unique (member_id, plan_id)
+);
+create index if not exists idx_favorites_member on favorites (member_id);
+
 -- 分類（兩層：分類 > 子分類。子分類的 parent_id 指向上層分類；頂層分類 parent_id 為 null）
 create table if not exists categories (
   id            uuid primary key default gen_random_uuid(),

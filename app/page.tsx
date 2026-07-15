@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight } from "lucide-react";
+import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight, Heart } from "lucide-react";
 
 type Mode = "MAIN" | "FB";
 type Category = { id: string; name: string; parentId: string | null };
@@ -11,13 +11,13 @@ type Plan = {
 type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
 type CartItem = { name: string; style: string; qty: number };
 type Identity = { source: string; nickname: string; fbUrl: string } | null;
-type PendingAction = null | "order" | "history";
+type PendingAction = null | "order" | "history" | "favorites";
 
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("MAIN");
-  const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account">("plans");
+  const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account" | "favorites">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
   const [toast, setToast] = useState("");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -26,6 +26,10 @@ export default function Home() {
   const [accountConfirmPw, setAccountConfirmPw] = useState("");
   const [accountMsg, setAccountMsg] = useState("");
   const [accountSaving, setAccountSaving] = useState(false);
+  const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [favoritedPlanIds, setFavoritedPlanIds] = useState<Set<string>>(new Set());
+  const [favoritePlans, setFavoritePlans] = useState<Plan[]>([]);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // identity form state
@@ -197,14 +201,83 @@ export default function Home() {
   function afterAuthSuccess(id: Identity) {
     const action = pendingAction;
     setPendingAction(null);
+    loadFavorites(id);
     if (action === "order") {
       setView("order");
       showToast("身分驗證成功，請按「新增訂單」送出");
     } else if (action === "history") {
       openHistoryNow(id);
+    } else if (action === "favorites") {
+      openFavoritesNow(id);
     } else {
       loadPlans(selectedCategoryId, searchQuery);
     }
+  }
+
+  async function loadFavorites(useIdentity?: Identity) {
+    const id = useIdentity || identity;
+    if (!id) return;
+    const r = await fetch(`/api/favorites?fbUrl=${encodeURIComponent(id.fbUrl)}`, { cache: "no-store" });
+    const d = await r.json();
+    setFavoritedPlanIds(new Set<string>(d.planIds || []));
+    setFavoritePlans(
+      (d.favorites || []).map((f: any) => ({
+        id: f.id, name: f.name, imageUrl: f.imageUrl, codLimit: 0, deadline: f.deadline,
+        closed: f.closed, categoryId: null, categoryName: f.categoryName, categoryParentId: null,
+      }))
+    );
+  }
+
+  async function toggleFavorite(planId: string) {
+    if (!identity) {
+      requireIdentity("favorites");
+      showToast("請先驗證身分才能收藏");
+      return;
+    }
+    const isFav = favoritedPlanIds.has(planId);
+    // 先更新畫面，讓使用者立刻看到反應，失敗再復原
+    setFavoritedPlanIds((prev) => {
+      const next = new Set(prev);
+      if (isFav) next.delete(planId);
+      else next.add(planId);
+      return next;
+    });
+    try {
+      const r = await fetch("/api/favorites", {
+        method: isFav ? "DELETE" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fbUrl: identity.fbUrl, planId }),
+      });
+      if (!r.ok) throw new Error();
+      loadFavorites();
+    } catch {
+      // 失敗就復原剛剛的畫面更新
+      setFavoritedPlanIds((prev) => {
+        const next = new Set(prev);
+        if (isFav) next.add(planId);
+        else next.delete(planId);
+        return next;
+      });
+      showToast("收藏失敗，請再試一次");
+    }
+  }
+
+  async function openFavorites() {
+    if (!identity) {
+      requireIdentity("favorites");
+      return;
+    }
+    openFavoritesNow();
+  }
+
+  async function openFavoritesNow(useIdentity?: Identity) {
+    const id = useIdentity || identity;
+    if (!id) return;
+    setView("favorites");
+    setCategoryQuickOpen(false);
+    setFavoritesLoading(true);
+    await loadFavorites(id);
+    setFavoritesLoading(false);
   }
 
   function changeQty(name: string, style: string, delta: number) {
@@ -227,6 +300,7 @@ export default function Home() {
   const cartCount = Object.values(cart).reduce((s, n) => s + n, 0);
 
   async function submitOrder() {
+    if (submittingOrder) return; // 防呆：正在送出中，忽略後續點擊
     if (!identity) {
       requireIdentity("order");
       return;
@@ -238,22 +312,29 @@ export default function Home() {
     if (items.length === 0) return showToast("請至少選擇一項商品");
     if (!activePlan) return;
 
-    const r = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        planId: activePlan.id,
-        items,
-        source: identity?.source,
-        nickname: identity?.nickname,
-        payment,
-        fbUrl: identity?.fbUrl,
-      }),
-    });
-    const d = await r.json();
-    if (!r.ok) return showToast(d.error || "新增訂單失敗");
-    showToast(`訂單已送出（編號 ${d.orderNo}）`);
-    setCart({});
+    setSubmittingOrder(true);
+    try {
+      const r = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: activePlan.id,
+          items,
+          source: identity?.source,
+          nickname: identity?.nickname,
+          payment,
+          fbUrl: identity?.fbUrl,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) return showToast(d.error || "新增訂單失敗");
+      showToast(`訂單已送出（編號 ${d.orderNo}）`);
+      setCart({});
+    } catch {
+      showToast("網路連線失敗，請再試一次");
+    } finally {
+      setSubmittingOrder(false);
+    }
   }
 
   async function openHistory() {
@@ -343,7 +424,7 @@ export default function Home() {
     breadcrumbParts.push({ label: activePlan.name });
   }
 
-  const isAccountArea = view === "history" || view === "account";
+  const isAccountArea = view === "history" || view === "account" || view === "favorites";
 
   function renderAccountNav(closeAfterSelect: boolean) {
     return (
@@ -354,6 +435,12 @@ export default function Home() {
           onClick={() => { openHistoryNow(); if (closeAfterSelect) setMobileDrawerOpen(false); }}
         >
           顯示歷史資料
+        </div>
+        <div
+          className={`account-nav-item ${view === "favorites" ? "active" : ""}`}
+          onClick={() => { openFavoritesNow(); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+        >
+          我的收藏
         </div>
         <div
           className={`account-nav-item ${view === "account" ? "active" : ""}`}
@@ -547,6 +634,7 @@ export default function Home() {
             <h2 className="section-title">{mode === "FB" ? "請填寫 FB 名字與連結" : "請選擇來源並填寫暱稱"}</h2>
             {pendingAction === "order" && <div className="rules-box">送出訂單前，請先驗證你的身分</div>}
             {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先驗證你的身分</div>}
+            {pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先驗證你的身分</div>}
 
             {mode === "MAIN" && (
               <div className="id-row">
@@ -695,6 +783,19 @@ export default function Home() {
 
                       <div className="product-info-v3">
                         <h2 className="product-plan-title">{activePlan.name}</h2>
+                        {activePlan.deadline && (
+                          <div className="product-plan-deadline">
+                            {activePlan.closed ? "已於 " : "截止 "}
+                            {new Date(activePlan.deadline).toLocaleString("zh-TW")}
+                          </div>
+                        )}
+                        <button
+                          className={`favorite-btn ${favoritedPlanIds.has(activePlan.id) ? "active" : ""}`}
+                          onClick={() => toggleFavorite(activePlan.id)}
+                        >
+                          <Heart size={16} fill={favoritedPlanIds.has(activePlan.id) ? "#D85A30" : "none"} />
+                          {favoritedPlanIds.has(activePlan.id) ? "已收藏" : "收藏"}
+                        </button>
 
                         {productNames.length > 1 && (
                           <>
@@ -740,22 +841,17 @@ export default function Home() {
                           <input className="qty" readOnly value={qty} />
                           <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
                         </div>
+
+                        <div className="product-checkout-row">
+                          <span className="product-checkout-total">合計 NT$ {fmt(cartTotal)}</span>
+                          <button className="btn" disabled={activePlan.closed || submittingOrder} onClick={submitOrder}>
+                            {submittingOrder ? "送出中…" : "加入購物車"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
                 })()}
-
-                <div className="footer-bar">
-                  <span className="total">
-                    合計：NT$ {fmt(cartTotal)}
-                    {payment === "取付" && activePlan.codLimit > 0 && (
-                      <span className={`limit-info ${cartTotal > activePlan.codLimit ? "over" : ""}`}>
-                        　（取付上限 NT$ {fmt(activePlan.codLimit)}）
-                      </span>
-                    )}
-                  </span>
-                  <button className="btn" disabled={activePlan.closed} onClick={submitOrder}>新增訂單</button>
-                </div>
               </div>
             )}
 
@@ -782,6 +878,38 @@ export default function Home() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {view === "favorites" && (
+              <div>
+                <h2 className="section-title">我的收藏</h2>
+                {favoritesLoading && <div className="spinner">載入中…</div>}
+                {!favoritesLoading && favoritePlans.length === 0 && <div className="spinner">還沒有收藏任何企劃</div>}
+                {!favoritesLoading && favoritePlans.length > 0 && (
+                  <div className="plan-grid">
+                    {favoritePlans.map((p) => (
+                      <div key={p.id} className={`plan-card-v2 ${p.closed ? "closed" : ""}`} onClick={() => openPlan(p)}>
+                        <div className="plan-card-v2-img">
+                          {p.imageUrl && <img src={p.imageUrl} alt={p.name} />}
+                          {p.categoryName && <span className="plan-card-v2-tag">{p.categoryName}</span>}
+                          <span className={`plan-card-v2-status ${p.closed ? "closed-tag" : "open"}`}>
+                            {p.closed ? "已截止" : "開放中"}
+                          </span>
+                        </div>
+                        <div className="plan-card-v2-body">
+                          <p className="plan-card-v2-name">{p.name}</p>
+                          {p.deadline && (
+                            <p className="plan-card-v2-meta">
+                              {p.closed ? "已於 " : "截止 "}
+                              {new Date(p.deadline).toLocaleString("zh-TW")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

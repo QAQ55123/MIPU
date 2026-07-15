@@ -279,8 +279,20 @@ html, body {
 .product-gallery-v3 img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
 .product-gallery-v3-empty { color: var(--muted); font-size: 13px; }
 .product-info-v3 { flex: 1; min-width: 0; }
-.product-plan-title { font-size: 18px; font-weight: 600; color: var(--text); margin: 0 0 14px; }
+.product-plan-title { font-size: 22px; font-weight: 700; color: var(--text); margin: 0 0 4px; }
+.product-plan-deadline { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.favorite-btn {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+  background: var(--card); color: var(--muted); border-radius: 999px; padding: 6px 14px;
+  font-size: 13px; cursor: pointer; margin-bottom: 18px;
+}
+.favorite-btn.active { color: #D85A30; border-color: #F0C9BB; background: #FDF3EF; }
 .product-info-v3 h4 { margin: 0 0 8px; font-size: 17px; color: var(--text); }
+.product-checkout-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line);
+}
+.product-checkout-total { font-size: 16px; font-weight: 600; color: var(--text); }
 .product-price-v3 { font-size: 22px; font-weight: 700; color: #D85A30; margin-bottom: 16px; }
 .product-info-v3-label { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
 .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
