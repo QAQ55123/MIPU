@@ -55,7 +55,7 @@ export default function Home() {
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({}); // key: name||style
-  const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [selectedProductName, setSelectedProductName] = useState<string | null>(null);
   const [selectedStyleByProduct, setSelectedStyleByProduct] = useState<Record<string, string>>({});
   const [payment, setPayment] = useState("匯款");
   const [history, setHistory] = useState<any[]>([]);
@@ -72,6 +72,7 @@ export default function Home() {
   }
 
   async function loadPlans(categoryId?: string | null, q?: string) {
+    setView("plans");
     setPlansLoading(true);
     const params = new URLSearchParams();
     if (categoryId) params.set("categoryId", categoryId);
@@ -80,7 +81,6 @@ export default function Home() {
     const d = await r.json();
     setPlans(d.plans || []);
     setPlansLoading(false);
-    setView("plans");
   }
 
   function selectCategory(id: string | null) {
@@ -129,7 +129,7 @@ export default function Home() {
     setActivePlan(d.plan);
     setProducts(d.products || []);
     setCart({});
-    setProductFilter(null);
+    setSelectedProductName(null);
     setSelectedStyleByProduct({});
     setProductsLoading(false);
   }
@@ -677,99 +677,79 @@ export default function Home() {
                     return acc;
                   }, {});
                   const productNames = Object.keys(grouped);
-                  const visibleEntries = Object.entries(grouped).filter(
-                    ([name]) => !productFilter || name === productFilter
-                  );
+                  if (productNames.length === 0) return null;
+
+                  const activeProductName = selectedProductName && grouped[selectedProductName] ? selectedProductName : productNames[0];
+                  const activeStyles = grouped[activeProductName];
+                  const currentStyle = selectedStyleByProduct[activeProductName] ?? activeStyles[0].style;
+                  const current = activeStyles.find((s) => s.style === currentStyle) || activeStyles[0];
+                  const key = `${current.name}||${current.style}`;
+                  const qty = cart[key] || 0;
+
+                  const productQtyTotal = (pname: string) =>
+                    grouped[pname].reduce((sum, s) => sum + (cart[`${s.name}||${s.style}`] || 0), 0);
+
                   return (
-                    <>
-                      {productNames.length > 1 && (
-                        <div className="filter-bar">
-                          <span
-                            className={`chip ${!productFilter ? "active" : ""}`}
-                            onClick={() => setProductFilter(null)}
-                          >
-                            全部
-                          </span>
-                          {productNames.map((name) => (
-                            <span
-                              key={name}
-                              className={`chip ${productFilter === name ? "active" : ""}`}
-                              onClick={() => setProductFilter(name)}
+                    <div className="product-card-v3">
+                      <div className="product-gallery-v3">
+                        {current.imageUrl ? (
+                          <img
+                            src={current.imageUrl}
+                            alt={current.style || activeProductName}
+                            onClick={() => setLightboxUrl(current.imageUrl!)}
+                          />
+                        ) : (
+                          <div className="product-gallery-v3-empty">尚無圖片</div>
+                        )}
+                      </div>
+
+                      <div className="product-info-v3">
+                        {productNames.length > 1 && (
+                          <>
+                            <div className="product-info-v3-label">商品</div>
+                            <div className="style-pills">
+                              {productNames.map((pname) => (
+                                <button
+                                  key={pname}
+                                  className={`style-pill ${activeProductName === pname ? "active" : ""}`}
+                                  onClick={() => setSelectedProductName(pname)}
+                                >
+                                  {pname}
+                                  {productQtyTotal(pname) > 0 && <span className="style-pill-badge">{productQtyTotal(pname)}</span>}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+
+                        {productNames.length === 1 && <h4>{activeProductName}</h4>}
+
+                        <div className="product-price-v3">NT$ {fmt(current.price)}</div>
+
+                        <div className="product-info-v3-label">款式</div>
+                        <div className="style-pills">
+                          {activeStyles.map((s) => (
+                            <button
+                              key={s.style}
+                              className={`style-pill ${currentStyle === s.style ? "active" : ""}`}
+                              onClick={() => setSelectedStyleByProduct((prev) => ({ ...prev, [activeProductName]: s.style }))}
                             >
-                              {name}
-                            </span>
+                              {s.style || "單一款式"}
+                              {(cart[`${s.name}||${s.style}`] || 0) > 0 && (
+                                <span className="style-pill-badge">{cart[`${s.name}||${s.style}`]}</span>
+                              )}
+                            </button>
                           ))}
                         </div>
-                      )}
 
-                      {visibleEntries.map(([name, styles]) => {
-                        const currentStyle = selectedStyleByProduct[name] ?? styles[0].style;
-                        const current = styles.find((s) => s.style === currentStyle) || styles[0];
-                        const key = `${current.name}||${current.style}`;
-                        const qty = cart[key] || 0;
-                        return (
-                          <div className="product-card-v3" key={name}>
-                            <div className="product-gallery-v3">
-                              {current.imageUrl ? (
-                                <img
-                                  src={current.imageUrl}
-                                  alt={current.style || name}
-                                  onClick={() => setLightboxUrl(current.imageUrl!)}
-                                />
-                              ) : (
-                                <div className="product-gallery-v3-empty">尚無圖片</div>
-                              )}
-                            </div>
-                            <div className="product-info-v3">
-                              <h4>{name}</h4>
-                              <div className="product-price-v3">NT$ {fmt(current.price)}</div>
-
-                              {styles.some((s) => s.imageUrl) && (
-                                <div className="thumb-row">
-                                  {styles.map((s) => (
-                                    <button
-                                      key={s.style}
-                                      className={`thumb-swatch ${currentStyle === s.style ? "active" : ""}`}
-                                      onClick={() => setSelectedStyleByProduct((prev) => ({ ...prev, [name]: s.style }))}
-                                      title={s.style || "單一款式"}
-                                    >
-                                      {s.imageUrl ? <img src={s.imageUrl} alt={s.style || name} /> : <span className="thumb-swatch-empty">無圖</span>}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-
-                              {styles.length > 1 && (
-                                <>
-                                  <div className="product-info-v3-label">款式</div>
-                                  <div className="style-pills">
-                                    {styles.map((s) => (
-                                      <button
-                                        key={s.style}
-                                        className={`style-pill ${currentStyle === s.style ? "active" : ""}`}
-                                        onClick={() => setSelectedStyleByProduct((prev) => ({ ...prev, [name]: s.style }))}
-                                      >
-                                        {s.style || "單一款式"}
-                                        {(cart[`${s.name}||${s.style}`] || 0) > 0 && (
-                                          <span className="style-pill-badge">{cart[`${s.name}||${s.style}`]}</span>
-                                        )}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </>
-                              )}
-
-                              <div className="product-info-v3-label">數量</div>
-                              <div className="stepper stepper-lg">
-                                <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(current.name, current.style, -1)}>－</button>
-                                <input className="qty" readOnly value={qty} />
-                                <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
+                        <div className="product-info-v3-label">數量</div>
+                        <div className="stepper stepper-lg">
+                          <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(current.name, current.style, -1)}>－</button>
+                          <input className="qty" readOnly value={qty} />
+                          <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
+                        </div>
+                      </div>
+                    </div>
                   );
                 })()}
 
