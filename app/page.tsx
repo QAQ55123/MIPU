@@ -789,13 +789,17 @@ export default function Home() {
                             {new Date(activePlan.deadline).toLocaleString("zh-TW")}
                           </div>
                         )}
-                        <button
-                          className={`favorite-btn ${favoritedPlanIds.has(activePlan.id) ? "active" : ""}`}
-                          onClick={() => toggleFavorite(activePlan.id)}
-                        >
-                          <Heart size={16} fill={favoritedPlanIds.has(activePlan.id) ? "#D85A30" : "none"} />
-                          {favoritedPlanIds.has(activePlan.id) ? "已收藏" : "收藏"}
-                        </button>
+
+                        <div className="product-price-row">
+                          <span className="product-price-v3">NT$ {fmt(current.price)}</span>
+                          <button
+                            className={`favorite-icon-btn ${favoritedPlanIds.has(activePlan.id) ? "active" : ""}`}
+                            onClick={() => toggleFavorite(activePlan.id)}
+                            aria-label="收藏"
+                          >
+                            <Heart size={20} fill={favoritedPlanIds.has(activePlan.id) ? "#D85A30" : "none"} />
+                          </button>
+                        </div>
 
                         {productNames.length > 1 && (
                           <>
@@ -816,8 +820,6 @@ export default function Home() {
                         )}
 
                         {productNames.length === 1 && <h4>{activeProductName}</h4>}
-
-                        <div className="product-price-v3">NT$ {fmt(current.price)}</div>
 
                         <div className="product-info-v3-label">款式</div>
                         <div className="style-pills">
