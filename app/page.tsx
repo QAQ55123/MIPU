@@ -658,17 +658,8 @@ export default function Home() {
 
             {view === "order" && !productsLoading && activePlan && (
               <div>
-                <h2 className="section-title">{activePlan.name}</h2>
+                <h2 className="section-title" style={{ marginBottom: 16 }}>{activePlan.name}</h2>
                 {activePlan.closed && <div className="banner warn">此企劃已截止，無法新增訂單</div>}
-
-                <div className="id-row pay-row" style={{ marginBottom: 24 }}>
-                  <span className="id-label">交易方式</span>
-                  <div className="source-btns">
-                    {["匯款", ...(activePlan.codLimit > 0 ? ["取付"] : [])].map((p) => (
-                      <button key={p} className={`src-btn ${payment === p ? "active" : ""}`} onClick={() => setPayment(p)}>{p}</button>
-                    ))}
-                  </div>
-                </div>
 
                 {(() => {
                   const grouped = products.reduce<Record<string, Product[]>>((acc, p) => {
