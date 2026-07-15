@@ -7,6 +7,7 @@ type Category = { id: string; name: string; parentId: string | null };
 type Plan = {
   id: string; name: string; imageUrl?: string; codLimit: number; deadline?: string; closed: boolean;
   categoryId?: string | null; categoryName?: string | null; categoryParentId?: string | null;
+  promoImages?: string[];
 };
 type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
 type CartItem = { name: string; style: string; qty: number };
@@ -747,6 +748,14 @@ export default function Home() {
             {view === "order" && !productsLoading && activePlan && (
               <div>
                 {activePlan.closed && <div className="banner warn">此企劃已截止，無法新增訂單</div>}
+
+                {activePlan.promoImages && activePlan.promoImages.length > 0 && (
+                  <div className="promo-gallery">
+                    {activePlan.promoImages.map((url, i) => (
+                      <img key={i} src={url} alt={`宣傳圖 ${i + 1}`} onClick={() => setLightboxUrl(url)} />
+                    ))}
+                  </div>
+                )}
 
                 {(() => {
                   const grouped = products.reduce<Record<string, Product[]>>((acc, p) => {

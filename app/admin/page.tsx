@@ -5,11 +5,12 @@ type Category = { id: string; name: string; parent_id: string | null };
 type PlanAdmin = {
   id: string; name: string; deadline: string | null; imageUrl: string | null;
   codLimit: number; visibleTo: string[]; categoryId: string | null; categoryName: string | null;
+  promoImages?: string[];
 };
 type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null };
 
 const emptyCategoryForm = { id: "", name: "", parentId: "" };
-const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", visibleTo: [] as string[], categoryId: "" };
+const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", visibleTo: [] as string[], categoryId: "", promoImages: [] as string[] };
 const emptyProductForm = { id: "", name: "", style: "", price: "0", imageUrl: "" };
 
 export default function AdminPage() {
@@ -33,6 +34,7 @@ export default function AdminPage() {
   const [planForm, setPlanForm] = useState(emptyPlanForm);
   const [planMsg, setPlanMsg] = useState("");
   const [uploadingPlanImg, setUploadingPlanImg] = useState(false);
+  const [uploadingPromoImg, setUploadingPromoImg] = useState(false);
 
   // ---- 商品 ----
   const [activePlanForProducts, setActivePlanForProducts] = useState<PlanAdmin | null>(null);
@@ -195,6 +197,7 @@ export default function AdminPage() {
       codLimit: String(p.codLimit || 0),
       visibleTo: p.visibleTo || [],
       categoryId: p.categoryId || "",
+      promoImages: p.promoImages || [],
     });
   }
 
@@ -208,6 +211,7 @@ export default function AdminPage() {
       codLimit: planForm.codLimit,
       visibleTo: planForm.visibleTo,
       categoryId: planForm.categoryId || null,
+      promoImages: planForm.promoImages,
     };
     try {
       if (planForm.id) {
@@ -246,6 +250,25 @@ export default function AdminPage() {
     } finally {
       setUploadingPlanImg(false);
     }
+  }
+
+  async function handlePromoImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPromoImg(true);
+    try {
+      const url = await uploadImage(file);
+      setPlanForm((f) => ({ ...f, promoImages: [...f.promoImages, url] }));
+    } catch (err: any) {
+      setPlanMsg("圖片上傳失敗：" + err.message);
+    } finally {
+      setUploadingPromoImg(false);
+      e.target.value = "";
+    }
+  }
+
+  function removePromoImage(index: number) {
+    setPlanForm((f) => ({ ...f, promoImages: f.promoImages.filter((_, i) => i !== index) }));
   }
 
   function toggleVisibleTo(v: string) {
@@ -522,6 +545,30 @@ export default function AdminPage() {
         </div>
         {uploadingPlanImg && <div style={{ fontSize: 13, color: "#8A8779" }}>圖片上傳中…</div>}
         {planForm.imageUrl && <img src={planForm.imageUrl} alt="預覽" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, marginBottom: 8 }} />}
+
+        <div className="id-row" style={{ alignItems: "flex-start" }}>
+          <span className="id-label" style={{ paddingTop: 8 }}>宣傳圖</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>可以放好幾張，顯示在商品頁最上方；沒有放的話那個區塊就不會出現</div>
+            {planForm.promoImages.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                {planForm.promoImages.map((url, i) => (
+                  <div key={i} style={{ position: "relative" }}>
+                    <img src={url} alt={`宣傳圖 ${i + 1}`} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6, border: "1px solid #EDE9DC" }} />
+                    <span
+                      onClick={() => removePromoImage(i)}
+                      style={{ position: "absolute", top: -6, right: -6, background: "#dc2626", color: "#fff", borderRadius: "999px", width: 18, height: 18, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                    >
+                      ×
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input type="file" accept="image/*" onChange={handlePromoImageUpload} />
+            {uploadingPromoImg && <div style={{ fontSize: 13, color: "#8A8779", marginTop: 4 }}>圖片上傳中…</div>}
+          </div>
+        </div>
 
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn" onClick={savePlan}>{planForm.id ? "儲存修改" : "新增企劃"}</button>

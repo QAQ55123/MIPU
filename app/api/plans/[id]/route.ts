@@ -36,6 +36,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         categoryId: plan.category_id,
         categoryName: plan.categories?.name || null,
         categoryParentId: plan.categories?.parent_id || null,
+        promoImages: plan.promo_images || [],
       },
       products: (products || []).map((p) => ({
         id: p.id,

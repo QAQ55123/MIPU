@@ -261,6 +261,17 @@ html, body {
 .account-nav-item:hover { background: var(--bg); }
 .account-nav-item.active { color: var(--primary); font-weight: 600; background: var(--bg); }
 
+.promo-gallery {
+  display: flex; gap: 10px; overflow-x: auto; margin-bottom: 16px; padding-bottom: 4px;
+}
+.promo-gallery img {
+  height: 200px; border-radius: 10px; border: 1px solid var(--line);
+  object-fit: cover; cursor: zoom-in; flex: 0 0 auto;
+}
+@media (max-width: 640px) {
+  .promo-gallery img { height: 160px; }
+}
+
 .product-card-v3 {
   display: grid; grid-template-columns: 260px 1fr; column-gap: 24px; row-gap: 4px;
   grid-template-areas: "gallery title" "gallery details";

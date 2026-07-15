@@ -48,6 +48,7 @@ create table if not exists plans (
   cod_limit     numeric default 0,           -- 取付上限（0 或負數 = 不開放取付）
   visible_to    text[] default '{}',         -- 顯示對象，例如 {LINE,DC}；空陣列 = 全部看得到
   category_id   uuid references categories(id) on delete set null,  -- 歸屬的分類或子分類（可為任一層）
+  promo_images  text[] default '{}',         -- 宣傳圖（可多張），顯示在商品頁最上方
   sort_order    int default 0,
   created_at    timestamptz default now()
 );

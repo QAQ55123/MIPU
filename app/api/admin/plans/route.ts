@@ -32,6 +32,7 @@ export async function GET(req: Request) {
       visibleTo: p.visible_to,
       categoryId: p.category_id,
       categoryName: p.categories?.name || null,
+      promoImages: p.promo_images || [],
     })),
   });
 }
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
       cod_limit: Number(body.codLimit) || 0,
       visible_to: body.visibleTo || [],
       category_id: body.categoryId || null,
+      promo_images: body.promoImages || [],
     })
     .select()
     .single();
@@ -82,6 +84,7 @@ export async function PUT(req: Request) {
       cod_limit: Number(body.codLimit) || 0,
       visible_to: body.visibleTo || [],
       category_id: body.categoryId || null,
+      promo_images: body.promoImages || [],
     })
     .eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
