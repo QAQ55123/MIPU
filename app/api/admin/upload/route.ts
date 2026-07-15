@@ -15,8 +15,8 @@ export async function POST(req: Request) {
   if (!file.type.startsWith("image/")) {
     return NextResponse.json({ error: "只能上傳圖片檔" }, { status: 400 });
   }
-  if (file.size > 5 * 1024 * 1024) {
-    return NextResponse.json({ error: "圖片大小請控制在 5MB 以內" }, { status: 400 });
+  if (file.size > 4 * 1024 * 1024) {
+    return NextResponse.json({ error: "圖片大小請控制在 4MB 以內" }, { status: 400 });
   }
 
   const supabase = getSupabaseAdmin();

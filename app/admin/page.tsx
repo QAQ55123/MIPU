@@ -125,10 +125,21 @@ export default function AdminPage() {
   }
 
   async function uploadImage(file: File): Promise<string> {
+    if (file.size > 4 * 1024 * 1024) {
+      throw new Error("圖片大小請控制在 4MB 以內，太大的圖片建議先壓縮再上傳");
+    }
     const form = new FormData();
     form.append("file", file);
     const r = await fetch("/api/admin/upload", { method: "POST", body: form });
-    const d = await r.json();
+
+    let d: any;
+    try {
+      d = await r.json();
+    } catch {
+      // 伺服器回傳的不是 JSON（例如平台層級擋掉過大請求），視情況給友善訊息
+      throw new Error(r.status === 413 ? "圖片檔案太大，請壓縮後再上傳" : "上傳失敗，請再試一次");
+    }
+
     if (r.status === 401) {
       setUnlocked(false);
       setLoginMsg("登入已過期，請重新登入");

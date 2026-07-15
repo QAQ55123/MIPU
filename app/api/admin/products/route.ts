@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession } from "@/lib/adminAuth";
+import { deleteStorageFiles } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -83,6 +84,8 @@ export async function PUT(req: Request) {
   if (!body.id) return NextResponse.json({ error: "缺少商品 id" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
+  const { data: oldProduct } = await supabase.from("products").select("image_url").eq("id", body.id).single();
+
   const { error } = await supabase
     .from("products")
     .update({
@@ -93,6 +96,12 @@ export async function PUT(req: Request) {
     })
     .eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const newImageUrl = body.imageUrl || null;
+  if (oldProduct?.image_url && oldProduct.image_url !== newImageUrl) {
+    deleteStorageFiles([oldProduct.image_url]).catch(() => {});
+  }
+
   return NextResponse.json({ ok: true });
 }
 
@@ -106,7 +115,12 @@ export async function DELETE(req: Request) {
   if (!body.id) return NextResponse.json({ error: "缺少商品 id" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
+  const { data: product } = await supabase.from("products").select("image_url").eq("id", body.id).single();
+
   const { error } = await supabase.from("products").delete().eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (product?.image_url) deleteStorageFiles([product.image_url]).catch(() => {});
+
   return NextResponse.json({ ok: true });
 }

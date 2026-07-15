@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession } from "@/lib/adminAuth";
+import { deleteStorageFiles } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -75,6 +76,10 @@ export async function PUT(req: Request) {
   if (!body.id) return NextResponse.json({ error: "缺少企劃 id" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
+
+  // 先抓舊資料，等下比對哪些圖片被換掉/移除了，順便清掉 Storage 裡的舊檔案
+  const { data: oldPlan } = await supabase.from("plans").select("image_url, promo_images").eq("id", body.id).single();
+
   const { error } = await supabase
     .from("plans")
     .update({
@@ -88,6 +93,17 @@ export async function PUT(req: Request) {
     })
     .eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (oldPlan) {
+    const newImageUrl = body.imageUrl || null;
+    const newPromoImages: string[] = body.promoImages || [];
+    const removedUrls = [
+      ...(oldPlan.image_url && oldPlan.image_url !== newImageUrl ? [oldPlan.image_url] : []),
+      ...((oldPlan.promo_images || []).filter((u: string) => !newPromoImages.includes(u))),
+    ];
+    if (removedUrls.length > 0) deleteStorageFiles(removedUrls).catch(() => {});
+  }
+
   return NextResponse.json({ ok: true });
 }
 
@@ -101,8 +117,21 @@ export async function DELETE(req: Request) {
   if (!body.id) return NextResponse.json({ error: "缺少企劃 id" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
+
+  // 刪除前先把這個企劃、以及底下所有商品用到的圖片蒐集起來，等資料庫刪除成功後一併清掉 Storage 檔案
+  const { data: plan } = await supabase.from("plans").select("image_url, promo_images").eq("id", body.id).single();
+  const { data: products } = await supabase.from("products").select("image_url").eq("plan_id", body.id);
+  const urlsToDelete = [
+    plan?.image_url,
+    ...(plan?.promo_images || []),
+    ...((products || []).map((p) => p.image_url)),
+  ];
+
   // 注意：刪除企劃會連同底下的商品、訂單一起刪除（外鍵 cascade）
   const { error } = await supabase.from("plans").delete().eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  deleteStorageFiles(urlsToDelete).catch(() => {});
+
   return NextResponse.json({ ok: true });
 }
