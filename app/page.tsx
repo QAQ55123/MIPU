@@ -658,7 +658,6 @@ export default function Home() {
 
             {view === "order" && !productsLoading && activePlan && (
               <div>
-                <h2 className="section-title" style={{ marginBottom: 16 }}>{activePlan.name}</h2>
                 {activePlan.closed && <div className="banner warn">此企劃已截止，無法新增訂單</div>}
 
                 {(() => {
@@ -695,6 +694,8 @@ export default function Home() {
                       </div>
 
                       <div className="product-info-v3">
+                        <h2 className="product-plan-title">{activePlan.name}</h2>
+
                         {productNames.length > 1 && (
                           <>
                             <div className="product-info-v3-label">商品</div>

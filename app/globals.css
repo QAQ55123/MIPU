@@ -279,6 +279,7 @@ html, body {
 .product-gallery-v3 img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
 .product-gallery-v3-empty { color: var(--muted); font-size: 13px; }
 .product-info-v3 { flex: 1; min-width: 0; }
+.product-plan-title { font-size: 18px; font-weight: 600; color: var(--text); margin: 0 0 14px; }
 .product-info-v3 h4 { margin: 0 0 8px; font-size: 17px; color: var(--text); }
 .product-price-v3 { font-size: 22px; font-weight: 700; color: #D85A30; margin-bottom: 16px; }
 .product-info-v3-label { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
