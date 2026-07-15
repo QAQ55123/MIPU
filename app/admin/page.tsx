@@ -239,7 +239,7 @@ export default function AdminPage() {
   }
 
   async function deletePlan(id: string) {
-    if (!confirm("確定要刪除這個企劃嗎？底下的商品和所有訂單會一起被刪除，無法復原！")) return;
+    if (!confirm("確定要刪除這個企劃嗎？底下的商品會一起被刪除，無法復原！（訂單記錄會保留，不會被刪除）")) return;
     try {
       await callJson("/api/admin/plans", "DELETE", { id });
       if (activePlanForProducts?.id === id) setActivePlanForProducts(null);

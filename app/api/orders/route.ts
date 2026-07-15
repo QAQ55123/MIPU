@@ -96,6 +96,7 @@ export async function POST(req: Request) {
     .insert({
       order_no: orderNo,
       plan_id: planId,
+      plan_name_snapshot: plan.name,
       source: finalSource,
       nickname: finalNickname,
       fb_url: finalFbUrl,
@@ -183,7 +184,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     orders: (orders || []).map((o: any) => ({
       orderNo: o.order_no,
-      planName: o.plans?.name,
+      planName: o.plan_name_snapshot || o.plans?.name || "（企劃已刪除）",
       planImage: o.plans?.image_url,
       source: o.source,
       nickname: o.nickname,

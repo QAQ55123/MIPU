@@ -127,7 +127,7 @@ export async function DELETE(req: Request) {
     ...((products || []).map((p) => p.image_url)),
   ];
 
-  // 注意：刪除企劃會連同底下的商品、訂單一起刪除（外鍵 cascade）
+  // 注意：刪除企劃會連同底下的商品一起刪除（外鍵 cascade），但訂單記錄會保留（只是不再連到這個企劃，企劃名稱已經有快照）
   const { error } = await supabase.from("plans").delete().eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

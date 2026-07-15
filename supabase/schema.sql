@@ -85,17 +85,18 @@ create unique index if not exists idx_members_email on members (lower(email)) wh
 
 -- 訂單（一張訂單一筆，品項另外存 order_items）
 create table if not exists orders (
-  id            uuid primary key default gen_random_uuid(),
-  order_no      text not null unique,
-  plan_id       uuid not null references plans(id) on delete cascade,
-  source        text not null,               -- LINE / Discord / FB
-  nickname      text not null,
-  fb_url        text not null,
-  fb_url_norm   text not null,
-  payment       text not null,               -- 匯款 / 取付
-  paid_status   text default '',             -- 空 / 已付款 等
-  created_at    timestamptz default now(),
-  updated_at    timestamptz default now()
+  id                 uuid primary key default gen_random_uuid(),
+  order_no           text not null unique,
+  plan_id            uuid references plans(id) on delete set null,  -- 企劃被刪除後，訂單仍然保留（只是不再連到那筆企劃）
+  plan_name_snapshot text,                        -- 下單當下的企劃名稱快照，不會因企劃被刪而遺失
+  source             text not null,               -- LINE / Discord / FB
+  nickname           text not null,
+  fb_url             text not null,
+  fb_url_norm        text not null,
+  payment            text not null,               -- 匯款 / 取付
+  paid_status        text default '',             -- 空 / 已付款 等
+  created_at         timestamptz default now(),
+  updated_at         timestamptz default now()
 );
 create index if not exists idx_orders_plan on orders (plan_id);
 create index if not exists idx_orders_fb_norm on orders (fb_url_norm);
