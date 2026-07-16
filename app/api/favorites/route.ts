@@ -1,24 +1,22 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { normFb } from "@/lib/util";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-async function findMemberId(supabase: ReturnType<typeof getSupabaseAdmin>, fbUrl: string) {
-  const fbNorm = normFb(fbUrl);
-  const { data } = await supabase.from("members").select("id").eq("fb_url_norm", fbNorm).maybeSingle();
+async function findMemberId(supabase: ReturnType<typeof getSupabaseAdmin>, username: string) {
+  const { data } = await supabase.from("members").select("id").ilike("username", username).maybeSingle();
   return data?.id || null;
 }
 
-/** GET ?fbUrl=... 回傳這個會員收藏的企劃清單（含企劃基本資訊，前台可以直接拿來顯示） */
+/** GET ?username=... 回傳這個會員收藏的企劃清單（含企劃基本資訊，前台可以直接拿來顯示） */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const fbUrl = searchParams.get("fbUrl") || "";
-  if (!fbUrl) return NextResponse.json({ favorites: [], planIds: [] }, { headers: { "Cache-Control": "no-store" } });
+  const username = searchParams.get("username") || "";
+  if (!username) return NextResponse.json({ favorites: [], planIds: [] }, { headers: { "Cache-Control": "no-store" } });
 
   const supabase = getSupabaseAdmin();
-  const memberId = await findMemberId(supabase, fbUrl);
+  const memberId = await findMemberId(supabase, username);
   if (!memberId) return NextResponse.json({ favorites: [], planIds: [] }, { headers: { "Cache-Control": "no-store" } });
 
   const { data, error } = await supabase
@@ -46,15 +44,15 @@ export async function GET(req: Request) {
   );
 }
 
-/** POST { fbUrl, planId } 加入收藏 */
+/** POST { username, planId } 加入收藏 */
 export async function POST(req: Request) {
   const body = await req.json();
-  const fbUrl = String(body.fbUrl || "");
+  const username = String(body.username || "");
   const planId = String(body.planId || "");
-  if (!fbUrl || !planId) return NextResponse.json({ error: "缺少必要參數" }, { status: 400 });
+  if (!username || !planId) return NextResponse.json({ error: "缺少必要參數" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const memberId = await findMemberId(supabase, fbUrl);
+  const memberId = await findMemberId(supabase, username);
   if (!memberId) return NextResponse.json({ error: "找不到會員資料，請先完成身分驗證" }, { status: 404 });
 
   const { error } = await supabase.from("favorites").insert({ member_id: memberId, plan_id: planId });
@@ -65,15 +63,15 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-/** DELETE { fbUrl, planId } 取消收藏 */
+/** DELETE { username, planId } 取消收藏 */
 export async function DELETE(req: Request) {
   const body = await req.json();
-  const fbUrl = String(body.fbUrl || "");
+  const username = String(body.username || "");
   const planId = String(body.planId || "");
-  if (!fbUrl || !planId) return NextResponse.json({ error: "缺少必要參數" }, { status: 400 });
+  if (!username || !planId) return NextResponse.json({ error: "缺少必要參數" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const memberId = await findMemberId(supabase, fbUrl);
+  const memberId = await findMemberId(supabase, username);
   if (!memberId) return NextResponse.json({ ok: true });
 
   const { error } = await supabase.from("favorites").delete().eq("member_id", memberId).eq("plan_id", planId);

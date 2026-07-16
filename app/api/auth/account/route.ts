@@ -1,0 +1,75 @@
+import { NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { verifyMemberPw, normFb } from "@/lib/util";
+import { sendEmail, verifyEmailHtml } from "@/lib/resend";
+import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  const username = String(body.username || "").trim();
+  const password = String(body.password || "");
+  const newEmail = body.newEmail ? String(body.newEmail).trim().toLowerCase() : null;
+  const newProfileUrlRaw = body.newProfileUrl ? String(body.newProfileUrl).trim() : null;
+
+  if (!username || !password) return NextResponse.json({ error: "請輸入帳號密碼" }, { status: 400 });
+
+  const supabase = getSupabaseAdmin();
+  const { data: member } = await supabase.from("members").select("*").ilike("username", username).maybeSingle();
+  if (!member) return NextResponse.json({ error: "帳號或密碼錯誤" }, { status: 401 });
+
+  const ok = await verifyMemberPw(password, member.password_hash);
+  if (!ok) return NextResponse.json({ error: "帳號或密碼錯誤" }, { status: 401 });
+
+  const updates: Record<string, any> = {};
+  let sentVerifyEmail = false;
+
+  if (newEmail && newEmail !== member.email) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return NextResponse.json({ error: "Email 格式不正確" }, { status: 400 });
+    }
+    const { data: existing } = await supabase.from("members").select("id").ilike("email", newEmail).neq("id", member.id).maybeSingle();
+    if (existing) return NextResponse.json({ error: "這個 Email 已經被其他帳號使用" }, { status: 409 });
+
+    const verifyToken = genToken();
+    updates.email = newEmail;
+    updates.email_verified = false;
+    updates.verify_token = verifyToken;
+    updates.verify_token_expires = hoursFromNow(24);
+    sentVerifyEmail = true;
+  }
+
+  if (newProfileUrlRaw) {
+    const newProfileUrl = /^https?:\/\//i.test(newProfileUrlRaw) ? newProfileUrlRaw : "https://" + newProfileUrlRaw;
+    const newProfileUrlNorm = normFb(newProfileUrl);
+    if (newProfileUrlNorm !== member.profile_url_norm) {
+      const { data: existing } = await supabase.from("members").select("id").eq("profile_url_norm", newProfileUrlNorm).neq("id", member.id).maybeSingle();
+      if (existing) return NextResponse.json({ error: "這個個人頁網址已經被其他帳號使用" }, { status: 409 });
+      updates.profile_url = newProfileUrl;
+      updates.profile_url_norm = newProfileUrlNorm;
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const { error } = await supabase.from("members").update(updates).eq("id", member.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (sentVerifyEmail) {
+    try {
+      const link = `${getSiteUrl()}/api/auth/verify-email?token=${updates.verify_token}`;
+      await sendEmail(updates.email, "請驗證你的新信箱", verifyEmailHtml(link));
+    } catch (e) {
+      console.error("驗證信寄送失敗：", e);
+    }
+  }
+
+  const { data: updated } = await supabase.from("members").select("*").eq("id", member.id).single();
+  return NextResponse.json({
+    ok: true,
+    username: updated.username,
+    profileUrl: updated.profile_url,
+    email: updated.email,
+    emailVerified: updated.email_verified,
+    verifyEmailSent: sentVerifyEmail,
+  });
+}

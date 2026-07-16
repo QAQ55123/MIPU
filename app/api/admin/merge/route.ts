@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireOwnerSession } from "@/lib/adminAuth";
 
-/** 把 removeId 的資料併進 keepId，然後刪除 removeId（訂單改指向 keep 的 fb_url_norm） */
+/** 把 removeId 名下的訂單改指向 keepId 的帳號，然後刪除 removeId 這個會員帳號 */
 export async function POST(req: Request) {
   const body = await req.json();
   try {
@@ -20,22 +20,19 @@ export async function POST(req: Request) {
   const { data: remove } = await supabase.from("members").select("*").eq("id", removeId).single();
   if (!keep || !remove) return NextResponse.json({ error: "找不到會員" }, { status: 404 });
 
-  // 補齊欄位：remove 有但 keep 沒有的暱稱，補進 keep
-  const updates: Record<string, any> = {};
-  if (!keep.line_nick && remove.line_nick) updates.line_nick = remove.line_nick;
-  if (!keep.discord_nick && remove.discord_nick) updates.discord_nick = remove.discord_nick;
-  if (!keep.fb_nick && remove.fb_nick) updates.fb_nick = remove.fb_nick;
-  if (Object.keys(updates).length > 0) {
-    await supabase.from("members").update(updates).eq("id", keepId);
-  }
-
-  // 把 remove 名下的訂單，改成指向 keep 的 fb_url_norm / fb_url
+  // 把 remove 名下的訂單，改成指向 keep 的帳號 / 個人頁網址
   const { data: changedOrders, error: updErr } = await supabase
     .from("orders")
-    .update({ fb_url: keep.fb_url, fb_url_norm: keep.fb_url_norm })
-    .eq("fb_url_norm", remove.fb_url_norm)
+    .update({ username: keep.username, profile_url: keep.profile_url })
+    .ilike("username", remove.username)
     .select("id");
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+
+  // remove 的收藏也一併轉移給 keep（重複的收藏會因為 unique 限制被忽略）
+  const { data: favs } = await supabase.from("favorites").select("plan_id").eq("member_id", removeId);
+  if (favs && favs.length > 0) {
+    await supabase.from("favorites").insert(favs.map((f) => ({ member_id: keepId, plan_id: f.plan_id })));
+  }
 
   await supabase.from("members").delete().eq("id", removeId);
 

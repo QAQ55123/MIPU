@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { normFb } from "@/lib/util";
 
 /** 編輯自己的訂單（items 空陣列＝取消整張） */
 export async function PUT(req: Request, { params }: { params: { orderNo: string } }) {
   const body = await req.json();
-  const { items, fbUrl, nickname, source } = body;
+  const { items, username } = body;
   const supabase = getSupabaseAdmin();
 
   const { data: order, error } = await supabase.from("orders").select("*, plans(*)").eq("order_no", params.orderNo).single();
   if (error || !order) return NextResponse.json({ error: "找不到訂單" }, { status: 404 });
 
-  // 身分驗證：FB 網址須相符
-  const fbNorm = normFb(fbUrl || "");
-  if (!fbNorm || fbNorm !== order.fb_url_norm) {
+  // 身分驗證：帳號須相符
+  if (!username || String(username).toLowerCase() !== String(order.username).toLowerCase()) {
     return NextResponse.json({ error: "身分驗證失敗，無法編輯此訂單" }, { status: 403 });
   }
 

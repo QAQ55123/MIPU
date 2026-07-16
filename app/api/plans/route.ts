@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { getMode } from "@/lib/util";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -8,7 +7,6 @@ export const fetchCache = "force-no-store";
 
 export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
-  const mode = getMode();
   const { searchParams } = new URL(req.url);
   const categoryId = searchParams.get("categoryId");
   const q = (searchParams.get("q") || "").trim();
@@ -59,24 +57,17 @@ export async function GET(req: Request) {
   }
 
   const now = Date.now();
-  const plans = rows
-    .filter((p: any) => {
-      if (mode === "FB") {
-        return !p.visible_to || p.visible_to.length === 0 || p.visible_to.includes("FB");
-      }
-      return true;
-    })
-    .map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      imageUrl: p.image_url,
-      codLimit: p.cod_limit || 0,
-      deadline: p.deadline,
-      closed: p.deadline ? new Date(p.deadline).getTime() < now : false,
-      categoryId: p.category_id,
-      categoryName: p.categories?.name || null,
-      categoryParentId: p.categories?.parent_id || null,
-    }));
+  const plans = rows.map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    imageUrl: p.image_url,
+    codLimit: p.cod_limit || 0,
+    deadline: p.deadline,
+    closed: p.deadline ? new Date(p.deadline).getTime() < now : false,
+    categoryId: p.category_id,
+    categoryName: p.categories?.name || null,
+    categoryParentId: p.categories?.parent_id || null,
+  }));
 
   return NextResponse.json({ plans }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } });
 }

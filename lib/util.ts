@@ -1,13 +1,15 @@
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 
-/** 密碼雜湊：SHA-256(正規化FB + 密碼 + 固定鹽)，對應原本 GAS 的 hashPw_ */
-export function hashPw(fbNorm: string, pw: string): string {
-  const salt = process.env.PW_SALT || "mibu_pw_v1";
-  const raw = `${fbNorm}|${pw ?? ""}|${salt}`;
-  return crypto.createHash("sha256").update(raw, "utf8").digest("hex");
+/** 會員密碼雜湊（bcrypt） */
+export async function hashMemberPw(password: string): Promise<string> {
+  return bcrypt.hash(password, 10);
+}
+export async function verifyMemberPw(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
 }
 
-/** FB 網址正規化：拿掉查詢參數、結尾斜線、大小寫統一，讓同一個人不同網址寫法能比對出來 */
+/** 個人頁網址正規化：拿掉查詢參數、結尾斜線、大小寫統一，讓同一個人不同網址寫法能比對出來 */
 export function normFb(url: string): string {
   if (!url) return "";
   let u = url.trim().toLowerCase();
@@ -30,8 +32,4 @@ export function genOrderNo(): string {
 
 export function fmtMoney(n: number): string {
   return new Intl.NumberFormat("zh-TW").format(Math.round(n));
-}
-
-export function getMode(): "MAIN" | "FB" {
-  return (process.env.FRONTEND_MODE === "FB" ? "FB" : "MAIN");
 }

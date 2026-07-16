@@ -35,10 +35,7 @@ export default function ForgotPasswordPage() {
       <div style={{ maxWidth: 380, margin: "80px auto", padding: 20, textAlign: "center" }}>
         <h2>信已經寄出了</h2>
         <p style={{ color: "#6B6858", fontSize: 14 }}>
-          如果這個 Email 有登記在你的會員資料裡，我們已經寄了一封重設密碼的連結過去，1 小時內有效。
-        </p>
-        <p style={{ color: "#8A8779", fontSize: 13 }}>
-          如果你之前沒有登記過 Email，這個方式沒辦法幫你找回密碼，請改用「重新選擇身分」用預設密碼 0000 換裝置登入。
+          如果這個 Email 有對應的帳號，我們已經寄了一封重設密碼的連結過去，1 小時內有效。
         </p>
         <a href="/">回到首頁</a>
       </div>

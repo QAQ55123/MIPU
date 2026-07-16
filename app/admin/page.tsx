@@ -21,6 +21,12 @@ export default function AdminPage() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [currentUsername, setCurrentUsername] = useState("");
   const [currentRole, setCurrentRole] = useState<"owner" | "staff" | "">("");
+  const [currentEmail, setCurrentEmail] = useState("");
+  const [currentEmailVerified, setCurrentEmailVerified] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [adminEmailPw, setAdminEmailPw] = useState("");
+  const [adminEmailMsg, setAdminEmailMsg] = useState("");
+  const [savingAdminEmail, setSavingAdminEmail] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
 
@@ -45,16 +51,11 @@ export default function AdminPage() {
   const [uploadingProductImg, setUploadingProductImg] = useState(false);
 
   // ---- 其他既有工具 ----
-  const [dupMsg, setDupMsg] = useState("");
-  const [dupList, setDupList] = useState<any[]>([]);
   const [keepId, setKeepId] = useState("");
   const [removeId, setRemoveId] = useState("");
   const [mergeMsg, setMergeMsg] = useState("");
-  const [resetFb, setResetFb] = useState("");
+  const [resetUsername, setResetUsername] = useState("");
   const [resetMsg, setResetMsg] = useState("");
-  const [resetSource, setResetSource] = useState("LINE");
-  const [resetNick, setResetNick] = useState("");
-  const [resetNickMsg, setResetNickMsg] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/session")
@@ -64,6 +65,8 @@ export default function AdminPage() {
           setUnlocked(true);
           setCurrentUsername(d.username);
           setCurrentRole(d.role);
+          setCurrentEmail(d.email || "");
+          setCurrentEmailVerified(d.emailVerified || false);
         }
         setCheckingSession(false);
       })
@@ -96,6 +99,8 @@ export default function AdminPage() {
       if (!r.ok) return setLoginMsg(d.error || "登入失敗");
       setCurrentUsername(d.username);
       setCurrentRole(d.role);
+      setCurrentEmail(d.email || "");
+      setCurrentEmailVerified(d.emailVerified || false);
       setUnlocked(true);
       setPassword("");
     } catch {
@@ -111,6 +116,24 @@ export default function AdminPage() {
     setCurrentRole("");
     setCurrentUsername("");
     setUsername("");
+  }
+
+  async function saveAdminEmail() {
+    setAdminEmailMsg("");
+    if (!adminEmailPw) return setAdminEmailMsg("請輸入目前的密碼");
+    if (!newAdminEmail.trim()) return setAdminEmailMsg("請輸入 Email");
+    setSavingAdminEmail(true);
+    try {
+      const d = await callJson("/api/admin/account", "POST", { password: adminEmailPw, newEmail: newAdminEmail.trim() });
+      setCurrentEmail(d.email);
+      setCurrentEmailVerified(d.emailVerified);
+      setAdminEmailPw("");
+      setAdminEmailMsg(d.verifyEmailSent ? "已更新，驗證信已寄出，請去收信點連結驗證。" : "已更新。");
+    } catch (e: any) {
+      setAdminEmailMsg("失敗：" + e.message);
+    } finally {
+      setSavingAdminEmail(false);
+    }
   }
 
   async function callJson(url: string, method: string, body: any) {
@@ -282,13 +305,6 @@ export default function AdminPage() {
     setPlanForm((f) => ({ ...f, promoImages: f.promoImages.filter((_, i) => i !== index) }));
   }
 
-  function toggleVisibleTo(v: string) {
-    setPlanForm((f) => ({
-      ...f,
-      visibleTo: f.visibleTo.includes(v) ? f.visibleTo.filter((x) => x !== v) : [...f.visibleTo, v],
-    }));
-  }
-
   // ================= 商品 =================
   async function openProductManager(p: PlanAdmin) {
     setActivePlanForProducts(p);
@@ -371,15 +387,6 @@ export default function AdminPage() {
   }
 
   // ================= 既有工具 =================
-  async function doList() {
-    setDupMsg("處理中…");
-    try {
-      const d = await callJson("/api/admin/duplicates", "POST", {});
-      setDupList(d.items || []);
-      setDupMsg(`完成，共 ${d.count} 筆。`);
-    } catch (e: any) { setDupMsg("失敗：" + e.message); }
-  }
-
   async function doMerge() {
     if (!keepId || !removeId) return setMergeMsg("請填兩個會員 ID");
     setMergeMsg("合併中…");
@@ -390,21 +397,12 @@ export default function AdminPage() {
   }
 
   async function doReset() {
-    if (!resetFb) return setResetMsg("請貼上 FB 連結");
+    if (!resetUsername) return setResetMsg("請填帳號");
     setResetMsg("重設中…");
     try {
-      await callJson("/api/admin/reset-password", "POST", { fbUrl: resetFb });
+      await callJson("/api/admin/reset-password", "POST", { username: resetUsername });
       setResetMsg("已重設為 0000。");
     } catch (e: any) { setResetMsg("失敗：" + e.message); }
-  }
-
-  async function doResetNick() {
-    if (!resetNick) return setResetNickMsg("請填暱稱");
-    setResetNickMsg("重設中…");
-    try {
-      await callJson("/api/admin/reset-password", "POST", { source: resetSource, nickname: resetNick });
-      setResetNickMsg("已重設為 0000。");
-    } catch (e: any) { setResetNickMsg("失敗：" + e.message); }
   }
 
   if (checkingSession) {
@@ -446,6 +444,32 @@ export default function AdminPage() {
         </div>
       </div>
       <p style={{ color: "#8A8779", fontSize: 13 }}>登入超過 8 小時會自動要求重新登入。</p>
+
+      {/* ---------------- 我的帳號設定 ---------------- */}
+      <div className="auth-card">
+        <h3>我的帳號設定</h3>
+        <div className="id-row">
+          <span className="id-label">目前信箱</span>
+          <span style={{ fontSize: 14 }}>
+            {currentEmail || "尚未設定"}
+            {currentEmail && (
+              <span style={{ marginLeft: 8, fontSize: 12, color: currentEmailVerified ? "#27500A" : "#B08E5A" }}>
+                {currentEmailVerified ? "（已驗證）" : "（尚未驗證）"}
+              </span>
+            )}
+          </span>
+        </div>
+        <div className="id-row">
+          <span className="id-label">新信箱</span>
+          <input type="text" value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} placeholder="輸入要設定/更改成的 Email" />
+        </div>
+        <div className="id-row">
+          <span className="id-label">目前密碼</span>
+          <input type="password" value={adminEmailPw} onChange={(e) => setAdminEmailPw(e.target.value)} placeholder="驗證身分用" />
+        </div>
+        <button className="btn" onClick={saveAdminEmail} disabled={savingAdminEmail}>{savingAdminEmail ? "儲存中…" : "更新信箱"}</button>
+        <div style={{ fontSize: 13, marginTop: 6 }}>{adminEmailMsg}</div>
+      </div>
 
       {/* ---------------- 分類管理 ---------------- */}
       <div className="auth-card">
@@ -539,16 +563,6 @@ export default function AdminPage() {
         <div className="id-row">
           <span className="id-label">取付上限</span>
           <input type="number" value={planForm.codLimit} onChange={(e) => setPlanForm((f) => ({ ...f, codLimit: e.target.value }))} placeholder="0＝不開放取付" />
-        </div>
-        <div className="id-row">
-          <span className="id-label">顯示對象</span>
-          <div style={{ display: "flex", gap: 12 }}>
-            {["LINE", "Discord", "FB"].map((v) => (
-              <label key={v} style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
-                <input type="checkbox" checked={planForm.visibleTo.includes(v)} onChange={() => toggleVisibleTo(v)} />{v}
-              </label>
-            ))}
-          </div>
         </div>
         <div className="id-row">
           <span className="id-label">企劃圖片</span>
@@ -662,17 +676,6 @@ export default function AdminPage() {
       {currentRole === "owner" && (
         <>
         <div className="auth-card">
-          <h3>疑似重複會員</h3>
-          <button className="btn" onClick={doList}>列出疑似重複</button>
-          <div style={{ fontSize: 13 }}>{dupMsg}</div>
-          {dupList.map((d, i) => (
-            <div key={i} style={{ fontSize: 13, borderTop: "1px dashed #EDE9DC", paddingTop: 6 }}>
-              暱稱「{d.nickname}」→ 會員 {d.member1} / {d.member2}
-            </div>
-          ))}
-        </div>
-
-        <div className="auth-card">
           <h3>合併會員</h3>
           <div className="id-row"><span className="id-label">保留 ID</span><input type="text" value={keepId} onChange={(e) => setKeepId(e.target.value)} /></div>
           <div className="id-row"><span className="id-label">併掉 ID</span><input type="text" value={removeId} onChange={(e) => setRemoveId(e.target.value)} /></div>
@@ -681,24 +684,10 @@ export default function AdminPage() {
         </div>
 
         <div className="auth-card">
-          <h3>重設 FB 會員密碼</h3>
-          <div className="id-row"><span className="id-label">FB 連結</span><input type="text" value={resetFb} onChange={(e) => setResetFb(e.target.value)} /></div>
+          <h3>重設會員密碼</h3>
+          <div className="id-row"><span className="id-label">帳號</span><input type="text" value={resetUsername} onChange={(e) => setResetUsername(e.target.value)} /></div>
           <button className="btn" onClick={doReset}>重設為 0000</button>
           <div style={{ fontSize: 13 }}>{resetMsg}</div>
-        </div>
-
-        <div className="auth-card">
-          <h3>重設密碼（來源＋暱稱）</h3>
-          <div className="id-row">
-            <span className="id-label">來源</span>
-            <select value={resetSource} onChange={(e) => setResetSource(e.target.value)}>
-              <option value="LINE">LINE</option>
-              <option value="Discord">Discord</option>
-            </select>
-          </div>
-          <div className="id-row"><span className="id-label">暱稱</span><input type="text" value={resetNick} onChange={(e) => setResetNick(e.target.value)} /></div>
-          <button className="btn" onClick={doResetNick}>重設為 0000</button>
-          <div style={{ fontSize: 13 }}>{resetNickMsg}</div>
         </div>
         </>
       )}

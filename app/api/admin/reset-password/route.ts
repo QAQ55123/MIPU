@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { hashPw, normFb } from "@/lib/util";
+import { hashMemberPw } from "@/lib/util";
 import { requireOwnerSession } from "@/lib/adminAuth";
 
-/** body: { pw, fbUrl } 或 { pw, source, nickname } → 密碼重設為 0000 */
+/** body: { username } → 密碼重設為 0000 */
 export async function POST(req: Request) {
   const body = await req.json();
   try {
@@ -12,24 +12,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }
 
+  const username = String(body.username || "").trim();
+  if (!username) return NextResponse.json({ error: "請提供帳號" }, { status: 400 });
+
   const supabase = getSupabaseAdmin();
-  let member;
-
-  if (body.fbUrl) {
-    const fbNorm = normFb(body.fbUrl);
-    const { data } = await supabase.from("members").select("*").eq("fb_url_norm", fbNorm).maybeSingle();
-    member = data;
-  } else if (body.source && body.nickname) {
-    const nickCol = body.source === "LINE" ? "line_nick" : "discord_nick";
-    const { data } = await supabase.from("members").select("*").ilike(nickCol, body.nickname).maybeSingle();
-    member = data;
-  } else {
-    return NextResponse.json({ error: "請提供 fbUrl 或 source+nickname" }, { status: 400 });
-  }
-
+  const { data: member } = await supabase.from("members").select("*").ilike("username", username).maybeSingle();
   if (!member) return NextResponse.json({ error: "找不到會員" }, { status: 404 });
 
-  const newHash = hashPw(member.fb_url_norm, "0000");
+  const newHash = await hashMemberPw("0000");
   await supabase.from("members").update({ password_hash: newHash }).eq("id", member.id);
 
   return NextResponse.json({ ok: true });

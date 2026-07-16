@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight, Heart } from "lucide-react";
 
-type Mode = "MAIN" | "FB";
 type Category = { id: string; name: string; parentId: string | null };
 type Plan = {
   id: string; name: string; imageUrl?: string; codLimit: number; deadline?: string; closed: boolean;
@@ -11,13 +10,12 @@ type Plan = {
 };
 type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
 type CartItem = { name: string; style: string; qty: number };
-type Identity = { source: string; nickname: string; fbUrl: string } | null;
+type Identity = { username: string; profileUrl: string; email: string } | null;
 type PendingAction = null | "order" | "history" | "favorites";
 
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
 
 export default function Home() {
-  const [mode, setMode] = useState<Mode>("MAIN");
   const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account" | "favorites">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
   const [toast, setToast] = useState("");
@@ -27,6 +25,10 @@ export default function Home() {
   const [accountConfirmPw, setAccountConfirmPw] = useState("");
   const [accountMsg, setAccountMsg] = useState("");
   const [accountSaving, setAccountSaving] = useState(false);
+  const [accountNewEmail, setAccountNewEmail] = useState("");
+  const [accountNewProfileUrl, setAccountNewProfileUrl] = useState("");
+  const [accountProfileMsg, setAccountProfileMsg] = useState("");
+  const [accountProfileSaving, setAccountProfileSaving] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [favoritedPlanIds, setFavoritedPlanIds] = useState<Set<string>>(new Set());
   const [favoritePlans, setFavoritePlans] = useState<Plan[]>([]);
@@ -34,13 +36,17 @@ export default function Home() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // identity form state
-  const [source, setSource] = useState<"LINE" | "Discord">("LINE");
-  const [nickname, setNickname] = useState("");
-  const [fbUrl, setFbUrl] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [authTab, setAuthTab] = useState<"login" | "register">("login");
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [regUsername, setRegUsername] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regConfirmPassword, setRegConfirmPassword] = useState("");
+  const [regProfileUrl, setRegProfileUrl] = useState("");
+  const [regEmail, setRegEmail] = useState("");
   const [authMsg, setAuthMsg] = useState("");
-  const [needRegister, setNeedRegister] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [verifyBannerMsg, setVerifyBannerMsg] = useState("");
 
   // categories / navigation
   const [categories, setCategories] = useState<Category[]>([]);
@@ -66,9 +72,13 @@ export default function Home() {
   const [history, setHistory] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch("/api/config").then((r) => r.json()).then((d) => setMode(d.mode));
     fetch("/api/categories", { cache: "no-store" }).then((r) => r.json()).then((d) => setCategories(d.categories || []));
     loadPlans();
+
+    const params = new URLSearchParams(window.location.search);
+    const verify = params.get("verify");
+    if (verify === "success") setVerifyBannerMsg("信箱驗證成功！");
+    else if (verify === "invalid") setVerifyBannerMsg("驗證連結無效或已過期。");
   }, []);
 
   function showToast(msg: string) {
@@ -145,57 +155,61 @@ export default function Home() {
     setView("identity");
   }
 
-  async function onAuthNext() {
+  async function onLogin() {
     setAuthMsg("");
-    if (mode === "FB") {
-      if (!nickname.trim()) return setAuthMsg("請填寫 FB 名字");
-      if (!fbUrl.trim()) return setAuthMsg("請貼上 FB 個人首頁網址");
+    if (!loginUsername.trim() || !loginPassword) return setAuthMsg("請輸入帳號密碼");
+    setAuthSubmitting(true);
+    try {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "FB", fbName: nickname, fbUrl, password: password || "0000" }),
+        body: JSON.stringify({ username: loginUsername.trim(), password: loginPassword }),
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "登入失敗");
-      const id = { source: "FB", nickname: d.fbName, fbUrl: d.fbUrl };
+      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email };
       setIdentity(id);
+      setLoginPassword("");
       afterAuthSuccess(id);
-      return;
+    } catch {
+      setAuthMsg("網路連線失敗，請再試一次");
+    } finally {
+      setAuthSubmitting(false);
     }
+  }
 
-    if (!nickname.trim()) return setAuthMsg("請填寫暱稱");
+  async function onRegister() {
+    setAuthMsg("");
+    if (regUsername.trim().length < 3) return setAuthMsg("帳號至少要 3 個字");
+    if (regPassword.length < 6) return setAuthMsg("密碼至少要 6 個字");
+    if (regPassword !== regConfirmPassword) return setAuthMsg("兩次輸入的密碼不一樣");
+    if (!regProfileUrl.trim()) return setAuthMsg("請填寫個人頁網址");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail)) return setAuthMsg("請輸入有效的 Email");
 
-    if (needRegister) {
-      if (!fbUrl.trim()) return setAuthMsg("第一次使用，請登記你的 FB 個人網址");
+    setAuthSubmitting(true);
+    try {
       const r = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, nickname, fbUrl, password: password || "0000", email: email.trim() || undefined }),
+        body: JSON.stringify({
+          username: regUsername.trim(),
+          password: regPassword,
+          confirmPassword: regConfirmPassword,
+          profileUrl: regProfileUrl.trim(),
+          email: regEmail.trim(),
+        }),
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
-      const id = { source, nickname, fbUrl: d.fbUrl };
+      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email };
       setIdentity(id);
-      setNeedRegister(false);
+      showToast("註冊成功！我們也寄了一封驗證信到你的信箱，記得去點連結驗證");
       afterAuthSuccess(id);
-      return;
+    } catch {
+      setAuthMsg("網路連線失敗，請再試一次");
+    } finally {
+      setAuthSubmitting(false);
     }
-
-    const r = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "MAIN", source, nickname, password: password || "0000" }),
-    });
-    const d = await r.json();
-    if (d.needRegister) {
-      setNeedRegister(true);
-      setAuthMsg("第一次使用這個暱稱，請往下登記你的 FB 個人網址");
-      return;
-    }
-    if (!r.ok) return setAuthMsg(d.error || "登入失敗");
-    const id = { source, nickname, fbUrl: d.fbUrl };
-    setIdentity(id);
-    afterAuthSuccess(id);
   }
 
   // 登入成功後，回到原本想做的事（送出訂單 / 查歷史），沒有的話就回企劃列表
@@ -218,7 +232,7 @@ export default function Home() {
   async function loadFavorites(useIdentity?: Identity) {
     const id = useIdentity || identity;
     if (!id) return;
-    const r = await fetch(`/api/favorites?fbUrl=${encodeURIComponent(id.fbUrl)}`, { cache: "no-store" });
+    const r = await fetch(`/api/favorites?username=${encodeURIComponent(id.username)}`, { cache: "no-store" });
     const d = await r.json();
     setFavoritedPlanIds(new Set<string>(d.planIds || []));
     setFavoritePlans(
@@ -232,7 +246,7 @@ export default function Home() {
   async function toggleFavorite(planId: string) {
     if (!identity) {
       requireIdentity("favorites");
-      showToast("請先驗證身分才能收藏");
+      showToast("請先登入才能收藏");
       return;
     }
     const isFav = favoritedPlanIds.has(planId);
@@ -247,7 +261,7 @@ export default function Home() {
       const r = await fetch("/api/favorites", {
         method: isFav ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fbUrl: identity.fbUrl, planId }),
+        body: JSON.stringify({ username: identity.username, planId }),
       });
       if (!r.ok) throw new Error();
       loadFavorites();
@@ -321,10 +335,8 @@ export default function Home() {
         body: JSON.stringify({
           planId: activePlan.id,
           items,
-          source: identity?.source,
-          nickname: identity?.nickname,
+          username: identity?.username,
           payment,
-          fbUrl: identity?.fbUrl,
         }),
       });
       const d = await r.json();
@@ -353,7 +365,7 @@ export default function Home() {
     setCategoryQuickOpen(false);
     setHistoryLoading(true);
     const params = new URLSearchParams();
-    if (id.fbUrl) params.set("fbUrl", id.fbUrl);
+    params.set("username", id.username);
     const r = await fetch(`/api/orders?${params.toString()}`, { cache: "no-store" });
     const d = await r.json();
     setHistory(d.orders || []);
@@ -366,7 +378,7 @@ export default function Home() {
     const r = await fetch(`/api/orders/${orderNo}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: [], fbUrl: identity.fbUrl }),
+      body: JSON.stringify({ items: [], username: identity.username }),
     });
     const d = await r.json();
     if (!r.ok) return showToast(d.error || "取消失敗");
@@ -378,19 +390,15 @@ export default function Home() {
     setAccountMsg("");
     if (!identity) return;
     if (!accountCurrentPw) return setAccountMsg("請輸入目前的密碼");
-    if (accountNewPw.length < 1) return setAccountMsg("請輸入新密碼");
+    if (accountNewPw.length < 6) return setAccountMsg("新密碼至少要 6 個字");
     if (accountNewPw !== accountConfirmPw) return setAccountMsg("兩次輸入的新密碼不一樣");
 
     setAccountSaving(true);
     try {
-      const body =
-        identity.source === "FB"
-          ? { mode: "FB", fbName: identity.nickname, fbUrl: identity.fbUrl, oldPassword: accountCurrentPw, newPassword: accountNewPw }
-          : { mode: "MAIN", source: identity.source, nickname: identity.nickname, password: accountCurrentPw, newPassword: accountNewPw };
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ username: identity.username, password: accountCurrentPw, newPassword: accountNewPw }),
       });
       const d = await r.json();
       if (!r.ok) return setAccountMsg(d.error || "修改失敗");
@@ -402,6 +410,38 @@ export default function Home() {
       setAccountMsg("網路連線失敗，請再試一次");
     } finally {
       setAccountSaving(false);
+    }
+  }
+
+  async function updateAccountProfile() {
+    setAccountProfileMsg("");
+    if (!identity) return;
+    if (!accountCurrentPw && !accountNewEmail && !accountNewProfileUrl) return;
+    if (!accountCurrentPw) return setAccountProfileMsg("請輸入目前的密碼");
+    if (!accountNewEmail.trim() && !accountNewProfileUrl.trim()) return setAccountProfileMsg("請填寫要更新的信箱或個人頁網址");
+
+    setAccountProfileSaving(true);
+    try {
+      const r = await fetch("/api/auth/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: identity.username,
+          password: accountCurrentPw,
+          newEmail: accountNewEmail.trim() || undefined,
+          newProfileUrl: accountNewProfileUrl.trim() || undefined,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setAccountProfileMsg(d.error || "更新失敗");
+      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email });
+      setAccountNewEmail("");
+      setAccountNewProfileUrl("");
+      setAccountProfileMsg(d.verifyEmailSent ? "已更新，驗證信已寄出，請去收信點連結驗證。" : "已更新。");
+    } catch {
+      setAccountProfileMsg("網路連線失敗，請再試一次");
+    } finally {
+      setAccountProfileSaving(false);
     }
   }
 
@@ -565,12 +605,11 @@ export default function Home() {
                   <div className="mibu-hover-panel">
                     {identity ? (
                       <>
-                        <div className="mibu-hover-panel-title">{identity.nickname}</div>
-                        <div className="mibu-hover-panel-row"><span>來源</span><span>{identity.source}</span></div>
-                        <div className="mibu-hover-panel-row"><span>FB</span><span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{identity.fbUrl}</span></div>
+                        <div className="mibu-hover-panel-title">{identity.username}</div>
+                        <div className="mibu-hover-panel-row"><span>個人頁</span><span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{identity.profileUrl}</span></div>
                       </>
                     ) : (
-                      <div className="mibu-hover-panel-empty">尚未登入，點擊查看歷史訂單時會先要求驗證身分</div>
+                      <div className="mibu-hover-panel-empty">尚未登入，點擊查看歷史訂單時會先要求登入</div>
                     )}
                   </div>
                 </div>
@@ -632,60 +671,59 @@ export default function Home() {
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
           <div className="auth-card">
             <a className="auth-back-link" onClick={() => { setPendingAction(null); setView("plans"); }}>← 返回</a>
-            <h2 className="section-title">{mode === "FB" ? "請填寫 FB 名字與連結" : "請選擇來源並填寫暱稱"}</h2>
-            {pendingAction === "order" && <div className="rules-box">送出訂單前，請先驗證你的身分</div>}
-            {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先驗證你的身分</div>}
-            {pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先驗證你的身分</div>}
+            {verifyBannerMsg && <div className="rules-box">{verifyBannerMsg}</div>}
+            {pendingAction === "order" && <div className="rules-box">送出訂單前，請先登入</div>}
+            {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先登入</div>}
+            {pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先登入</div>}
 
-            {mode === "MAIN" && (
-              <div className="id-row">
-                <span className="id-label">來源</span>
-                <div className="source-btns">
-                  {(["LINE", "Discord"] as const).map((s) => (
-                    <button key={s} className={`src-btn ${source === s ? "active" : ""}`} onClick={() => { setSource(s); setNeedRegister(false); }}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="id-row">
-              <span className="id-label">{mode === "FB" ? "FB 名字" : "暱稱"}</span>
-              <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={mode === "FB" ? "輸入你的 FB 名字（顯示用）" : "輸入你在該社群使用的暱稱"} />
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <button className={`src-btn ${authTab === "login" ? "active" : ""}`} onClick={() => { setAuthTab("login"); setAuthMsg(""); }}>登入</button>
+              <button className={`src-btn ${authTab === "register" ? "active" : ""}`} onClick={() => { setAuthTab("register"); setAuthMsg(""); }}>註冊新帳號</button>
             </div>
 
-            {mode === "FB" && (
-              <div className="id-row">
-                <span className="id-label">FB 連結</span>
-                <input type="text" value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="貼上 FB 個人首頁網址（必填）" />
-              </div>
-            )}
-
-            {mode === "MAIN" && needRegister && (
+            {authTab === "login" ? (
               <>
+                <h2 className="section-title">登入</h2>
                 <div className="id-row">
-                  <span className="id-label">FB 網址</span>
-                  <input type="text" value={fbUrl} onChange={(e) => setFbUrl(e.target.value)} placeholder="https://www.facebook.com/你的個人頁" />
+                  <span className="id-label">帳號</span>
+                  <input type="text" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} />
+                </div>
+                <div className="id-row">
+                  <span className="id-label">密碼</span>
+                  <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} />
+                </div>
+                <div className="auth-msg">{authMsg}</div>
+                <button className="btn" onClick={onLogin} disabled={authSubmitting}>{authSubmitting ? "登入中…" : "登入"}</button>
+                <p style={{ fontSize: 13, marginTop: 10 }}>
+                  <a href="/forgot-password" style={{ color: "var(--muted)" }}>忘記密碼？</a>
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="section-title">建立新帳號</h2>
+                <div className="id-row">
+                  <span className="id-label">帳號</span>
+                  <input type="text" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="至少 3 個字" />
+                </div>
+                <div className="id-row">
+                  <span className="id-label">密碼</span>
+                  <input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="至少 6 個字" />
+                </div>
+                <div className="id-row">
+                  <span className="id-label">確認密碼</span>
+                  <input type="password" value={regConfirmPassword} onChange={(e) => setRegConfirmPassword(e.target.value)} placeholder="再輸入一次" />
+                </div>
+                <div className="id-row">
+                  <span className="id-label">個人頁網址</span>
+                  <input type="text" value={regProfileUrl} onChange={(e) => setRegProfileUrl(e.target.value)} placeholder="例如你的 FB 個人首頁網址" />
                 </div>
                 <div className="id-row">
                   <span className="id-label">Email</span>
-                  <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="選填，忘記密碼時用來找回帳號" />
+                  <input type="text" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="請留下可收信的信箱，會寄驗證信" />
                 </div>
+                <div className="auth-msg">{authMsg}</div>
+                <button className="btn" onClick={onRegister} disabled={authSubmitting}>{authSubmitting ? "建立中…" : "註冊"}</button>
               </>
-            )}
-
-            <div className="id-row">
-              <span className="id-label">密碼</span>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="預設 0000（換裝置登入用）" />
-            </div>
-
-            <div className="auth-msg">{authMsg}</div>
-            <button className="btn" onClick={onAuthNext}>繼續</button>
-            {!needRegister && (
-              <p style={{ fontSize: 13 }}>
-                <a href="/forgot-password" style={{ color: "var(--muted)" }}>忘記密碼？（需曾登記過 Email）</a>
-              </p>
             )}
           </div>
         </div>
@@ -877,7 +915,7 @@ export default function Home() {
                 {!historyLoading && history.map((o) => (
                   <div className="hist-card" key={o.orderNo}>
                     <div className="hist-head">
-                      <span className="hist-src">{o.planName}｜{o.source}｜{o.nickname}</span>
+                      <span className="hist-src">{o.planName}｜{o.username}</span>
                       <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
                     </div>
                     {o.items.map((it: any, idx: number) => (
@@ -931,9 +969,27 @@ export default function Home() {
               <div>
                 <h2 className="section-title">編輯會員資料</h2>
                 <div className="auth-card" style={{ marginTop: 0 }}>
-                  <div className="id-row"><span className="id-label">來源</span><span>{identity.source}</span></div>
-                  <div className="id-row"><span className="id-label">暱稱</span><span>{identity.nickname}</span></div>
-                  <div className="id-row"><span className="id-label">FB 網址</span><span style={{ wordBreak: "break-all" }}>{identity.fbUrl}</span></div>
+                  <div className="id-row"><span className="id-label">帳號</span><span>{identity.username}</span></div>
+                  <div className="id-row"><span className="id-label">個人頁</span><span style={{ wordBreak: "break-all" }}>{identity.profileUrl}</span></div>
+                  <div className="id-row"><span className="id-label">Email</span><span>{identity.email}</span></div>
+                </div>
+
+                <div className="auth-card">
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>修改信箱／個人頁網址</h3>
+                  <div className="id-row">
+                    <span className="id-label">新 Email</span>
+                    <input type="text" value={accountNewEmail} onChange={(e) => setAccountNewEmail(e.target.value)} placeholder="留空表示不更改" />
+                  </div>
+                  <div className="id-row">
+                    <span className="id-label">新個人頁</span>
+                    <input type="text" value={accountNewProfileUrl} onChange={(e) => setAccountNewProfileUrl(e.target.value)} placeholder="留空表示不更改" />
+                  </div>
+                  <div className="id-row">
+                    <span className="id-label">目前密碼</span>
+                    <input type="password" value={accountCurrentPw} onChange={(e) => setAccountCurrentPw(e.target.value)} placeholder="驗證身分用" />
+                  </div>
+                  <div className="auth-msg">{accountProfileMsg}</div>
+                  <button className="btn" onClick={updateAccountProfile} disabled={accountProfileSaving}>{accountProfileSaving ? "儲存中…" : "更新"}</button>
                 </div>
 
                 <div className="auth-card">

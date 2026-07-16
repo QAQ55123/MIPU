@@ -65,23 +65,24 @@ create table if not exists products (
   sort_order    int default 0
 );
 
--- 會員（原本「會員資料」分頁，一人一筆，FB 網址正規化後當主鍵）
+-- 會員（統一帳號系統，不分 LINE/Discord/FB，一組帳號密碼登入）
 create table if not exists members (
-  id            uuid primary key default gen_random_uuid(),
-  fb_url        text not null,               -- 原始 FB 網址
-  fb_url_norm   text not null unique,        -- 正規化後的 FB 網址（用來比對是否同一人）
-  line_nick     text,
-  discord_nick  text,
-  fb_nick       text,                        -- FB 前台顯示用名字
-  email         text,                        -- 選填，用來忘記密碼時找回帳號、或聯繫不上時使用
-  password_hash text not null,               -- SHA-256(fb_url_norm|password|salt)
-  reset_token          text,
-  reset_token_expires  timestamptz,
-  created_at    timestamptz default now()
+  id                    uuid primary key default gen_random_uuid(),
+  username              text not null,
+  password_hash         text not null,               -- bcrypt
+  profile_url           text not null,               -- 個人頁網址（例如 FB 個人首頁）
+  profile_url_norm      text not null,                -- 正規化後的網址，避免同一人重複註冊
+  email                 text not null,
+  email_verified        boolean not null default false,
+  verify_token          text,
+  verify_token_expires  timestamptz,
+  reset_token           text,
+  reset_token_expires   timestamptz,
+  created_at            timestamptz default now()
 );
-create index if not exists idx_members_line_nick on members (lower(line_nick));
-create index if not exists idx_members_discord_nick on members (lower(discord_nick));
-create unique index if not exists idx_members_email on members (lower(email)) where email is not null;
+create unique index if not exists idx_members_username on members (lower(username));
+create unique index if not exists idx_members_email on members (lower(email));
+create unique index if not exists idx_members_profile_url_norm on members (profile_url_norm);
 
 -- 訂單（一張訂單一筆，品項另外存 order_items）
 create table if not exists orders (
@@ -89,17 +90,15 @@ create table if not exists orders (
   order_no           text not null unique,
   plan_id            uuid references plans(id) on delete set null,  -- 企劃被刪除後，訂單仍然保留（只是不再連到那筆企劃）
   plan_name_snapshot text,                        -- 下單當下的企劃名稱快照，不會因企劃被刪而遺失
-  source             text not null,               -- LINE / Discord / FB
-  nickname           text not null,
-  fb_url             text not null,
-  fb_url_norm        text not null,
+  username           text not null,               -- 下單當時的帳號
+  profile_url        text not null,               -- 下單當時的個人頁網址快照
   payment            text not null,               -- 匯款 / 取付
   paid_status        text default '',             -- 空 / 已付款 等
   created_at         timestamptz default now(),
   updated_at         timestamptz default now()
 );
 create index if not exists idx_orders_plan on orders (plan_id);
-create index if not exists idx_orders_fb_norm on orders (fb_url_norm);
+create index if not exists idx_orders_username on orders (lower(username));
 
 create table if not exists order_items (
   id            uuid primary key default gen_random_uuid(),
@@ -111,15 +110,6 @@ create table if not exists order_items (
   subtotal      numeric not null
 );
 create index if not exists idx_order_items_order on order_items (order_id);
-
--- 疑似重複會員（後台工具用，對應原本的「疑似重複」分頁）
-create table if not exists suspected_duplicates (
-  id            uuid primary key default gen_random_uuid(),
-  nickname      text not null,
-  member_id_1   uuid references members(id),
-  member_id_2   uuid references members(id),
-  detected_at   timestamptz default now()
-);
 
 -- updated_at 自動更新
 create or replace function set_updated_at() returns trigger as $$

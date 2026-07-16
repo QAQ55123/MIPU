@@ -1,58 +1,30 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { genOrderNo, normFb, fmtMoney, getMode } from "@/lib/util";
+import { genOrderNo, fmtMoney } from "@/lib/util";
 import { notifyDiscord } from "@/lib/discord";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-
 /** 新增訂單 */
 export async function POST(req: Request) {
   const body = await req.json();
-  const {
-    planId,
-    items, // [{ name, style, qty }]
-    source, // MAIN: 'LINE'|'Discord'；FB 模式固定為 'FB'
-    nickname,
-    payment, // '匯款' | '取付'
-    fbUrl,
-  } = body;
+  const { planId, items, username, payment } = body; // items: [{ name, style, qty }]
 
-  const mode = getMode();
   const supabase = getSupabaseAdmin();
 
   if (!planId) return NextResponse.json({ error: "缺少企劃" }, { status: 400 });
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "請至少選擇一項商品的數量" }, { status: 400 });
   }
-
-  let finalSource = String(source || "").trim();
-  let finalFbUrl = String(fbUrl || "").trim();
-  const finalNickname = String(nickname || "").trim();
-
-  if (mode === "FB") {
-    finalSource = "FB";
-    if (!finalNickname) return NextResponse.json({ error: "請先填寫你的 FB 名字" }, { status: 400 });
-    if (payment !== "匯款") return NextResponse.json({ error: "此前台僅接受匯款" }, { status: 400 });
-    if (!finalFbUrl) return NextResponse.json({ error: "請貼上你的 FB 個人連結" }, { status: 400 });
-    if (!/^https?:\/\//i.test(finalFbUrl)) finalFbUrl = "https://" + finalFbUrl;
-  } else {
-    if (!["LINE", "Discord"].includes(finalSource)) {
-      return NextResponse.json({ error: "請先選擇來源（LINE / Discord）" }, { status: 400 });
-    }
-    if (!finalNickname) return NextResponse.json({ error: "請先填寫暱稱" }, { status: 400 });
-    if (!["匯款", "取付"].includes(payment)) {
-      return NextResponse.json({ error: "請先選擇交易方式（匯款 / 取付）" }, { status: 400 });
-    }
-    const nickCol = finalSource === "LINE" ? "line_nick" : "discord_nick";
-    const { data: member } = await supabase.from("members").select("*").ilike(nickCol, finalNickname).maybeSingle();
-    if (!member) {
-      return NextResponse.json({ error: "找不到你的會員資料，請先完成第一次的 FB 個人網址登記。" }, { status: 400 });
-    }
-    finalFbUrl = member.fb_url;
+  const finalUsername = String(username || "").trim();
+  if (!finalUsername) return NextResponse.json({ error: "請先登入身分" }, { status: 400 });
+  if (!["匯款", "取付"].includes(payment)) {
+    return NextResponse.json({ error: "請先選擇交易方式（匯款 / 取付）" }, { status: 400 });
   }
-  const fbNorm = normFb(finalFbUrl);
+
+  const { data: member } = await supabase.from("members").select("*").ilike("username", finalUsername).maybeSingle();
+  if (!member) return NextResponse.json({ error: "找不到你的會員資料，請重新登入。" }, { status: 400 });
 
   // 企劃 / 截止時間 / 取付上限
   const { data: plan, error: planErr } = await supabase.from("plans").select("*").eq("id", planId).single();
@@ -97,10 +69,8 @@ export async function POST(req: Request) {
       order_no: orderNo,
       plan_id: planId,
       plan_name_snapshot: plan.name,
-      source: finalSource,
-      nickname: finalNickname,
-      fb_url: finalFbUrl,
-      fb_url_norm: fbNorm,
+      username: member.username,
+      profile_url: member.profile_url,
       payment,
     })
     .select()
@@ -118,16 +88,6 @@ export async function POST(req: Request) {
   const { error: itemsErr } = await supabase.from("order_items").insert(itemRows);
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
 
-  // FB 前台：補進會員資料
-  if (mode === "FB") {
-    const { data: existing } = await supabase.from("members").select("*").eq("fb_url_norm", fbNorm).maybeSingle();
-    if (!existing) {
-      await supabase.from("members").insert({ fb_url: finalFbUrl, fb_url_norm: fbNorm, fb_nick: finalNickname, password_hash: "" });
-    } else if (existing.fb_nick !== finalNickname) {
-      await supabase.from("members").update({ fb_nick: finalNickname }).eq("id", existing.id);
-    }
-  }
-
   const lines = rows.map((r) => `• ${r.name}${r.style ? `（${r.style}）` : ""} x${r.qty} = NT$ ${fmtMoney(r.subtotal)}`).join("\n");
   notifyDiscord({
     username: "訂購通知",
@@ -138,11 +98,10 @@ export async function POST(req: Request) {
         fields: [
           { name: "訂單編號", value: orderNo, inline: true },
           { name: "交易方式", value: payment, inline: true },
-          { name: "來源", value: finalSource, inline: true },
-          { name: "暱稱", value: finalNickname, inline: true },
+          { name: "帳號", value: member.username, inline: true },
           { name: "企劃", value: plan.name, inline: true },
           { name: "金額", value: `NT$ ${fmtMoney(orderTotal)}`, inline: true },
-          { name: "FB", value: finalFbUrl },
+          { name: "個人頁", value: member.profile_url },
           { name: "品項", value: lines || "(無)" },
         ],
         timestamp: new Date().toISOString(),
@@ -153,31 +112,17 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, orderNo, count: rows.length, total: orderTotal });
 }
 
-/** 查詢歷史訂單：?fbUrl=... 或 ?nickname=...&source=... */
+/** 查詢歷史訂單：?username=... */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const fbUrl = searchParams.get("fbUrl");
-  const nickname = searchParams.get("nickname");
-  const source = searchParams.get("source");
+  const username = (searchParams.get("username") || "").trim();
+  if (!username) return NextResponse.json({ error: "請提供 username" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  let fbNorm = "";
-
-  if (fbUrl) {
-    fbNorm = normFb(fbUrl);
-  } else if (nickname && source) {
-    const nickCol = source === "LINE" ? "line_nick" : source === "Discord" ? "discord_nick" : "fb_nick";
-    const { data: member } = await supabase.from("members").select("*").ilike(nickCol, nickname).maybeSingle();
-    if (!member) return NextResponse.json({ orders: [] });
-    fbNorm = member.fb_url_norm;
-  } else {
-    return NextResponse.json({ error: "請提供 fbUrl 或 nickname+source" }, { status: 400 });
-  }
-
   const { data: orders, error } = await supabase
     .from("orders")
     .select("*, plans(name, image_url), order_items(*)")
-    .eq("fb_url_norm", fbNorm)
+    .ilike("username", username)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -186,8 +131,7 @@ export async function GET(req: Request) {
       orderNo: o.order_no,
       planName: o.plan_name_snapshot || o.plans?.name || "（企劃已刪除）",
       planImage: o.plans?.image_url,
-      source: o.source,
-      nickname: o.nickname,
+      username: o.username,
       payment: o.payment,
       paidStatus: o.paid_status,
       createdAt: o.created_at,

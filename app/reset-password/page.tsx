@@ -17,7 +17,7 @@ export default function ResetPasswordPage() {
   async function onSubmit() {
     setMsg("");
     if (!token) return setMsg("連結參數缺失，請重新從信件裡的連結進入");
-    if (password.length < 4) return setMsg("密碼太短");
+    if (password.length < 6) return setMsg("密碼至少要 6 個字");
     if (password !== confirmPassword) return setMsg("兩次輸入的密碼不一樣");
 
     setSubmitting(true);
