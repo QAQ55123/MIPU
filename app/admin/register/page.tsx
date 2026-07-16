@@ -80,7 +80,7 @@ export default function AdminRegisterPage() {
       </div>
       <div className="id-row">
         <span className="id-label">邀請碼</span>
-        <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} placeholder="跟給你這個網址的人索取" />
+        <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
       </div>
 
       <div style={{ color: "#dc2626", fontSize: 13, minHeight: 18, margin: "6px 0" }}>{msg}</div>

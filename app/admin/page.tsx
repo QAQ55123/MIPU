@@ -58,6 +58,9 @@ export default function AdminPage() {
   const [resetMsg, setResetMsg] = useState("");
   const [profileRequests, setProfileRequests] = useState<any[]>([]);
   const [profileRequestsMsg, setProfileRequestsMsg] = useState("");
+  const [inviteCodes, setInviteCodes] = useState<any[]>([]);
+  const [inviteCodesMsg, setInviteCodesMsg] = useState("");
+  const [generatingCode, setGeneratingCode] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/session")
@@ -85,7 +88,10 @@ export default function AdminPage() {
     if (unlocked) {
       loadCategories();
       loadPlans();
-      if (currentRole === "owner") loadProfileRequests();
+      if (currentRole === "owner") {
+        loadProfileRequests();
+        loadInviteCodes();
+      }
     }
   }, [unlocked, currentRole]);
 
@@ -459,6 +465,48 @@ export default function AdminPage() {
     }
   }
 
+  async function loadInviteCodes() {
+    try {
+      const r = await fetch("/api/admin/invite-codes", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setInviteCodes(d.codes || []);
+    } catch {
+      setInviteCodesMsg("載入失敗");
+    }
+  }
+
+  async function generateInviteCode() {
+    setInviteCodesMsg("");
+    setGeneratingCode(true);
+    try {
+      const d = await callJson("/api/admin/invite-codes", "POST", {});
+      setInviteCodesMsg(`已產生新邀請碼：${d.code}`);
+      loadInviteCodes();
+    } catch (e: any) {
+      setInviteCodesMsg("失敗：" + e.message);
+    } finally {
+      setGeneratingCode(false);
+    }
+  }
+
+  async function revokeInviteCode(id: string) {
+    if (!confirm("確定要撤銷這組還沒使用過的邀請碼嗎？")) return;
+    setInviteCodesMsg("");
+    try {
+      await callJson("/api/admin/invite-codes", "DELETE", { id });
+      setInviteCodesMsg("已撤銷。");
+      loadInviteCodes();
+    } catch (e: any) {
+      setInviteCodesMsg("失敗：" + e.message);
+    }
+  }
+
+  function copyInviteCode(code: string) {
+    navigator.clipboard?.writeText(code);
+    setInviteCodesMsg(`已複製：${code}`);
+  }
+
   if (checkingSession) {
     return <div style={{ textAlign: "center", padding: 60, color: "#8A8779" }}>載入中…</div>;
   }
@@ -768,6 +816,37 @@ export default function AdminPage() {
             </div>
           ))}
           <div style={{ fontSize: 13, marginTop: 6 }}>{profileRequestsMsg}</div>
+        </div>
+
+        <div className="auth-card">
+          <h3>Staff 邀請碼管理</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            每組邀請碼只能用一次，用過就會失效。owner 的邀請碼另外用固定的環境變數，不受這裡影響。
+          </p>
+          <button className="btn" onClick={generateInviteCode} disabled={generatingCode}>
+            {generatingCode ? "產生中…" : "產生新的邀請碼"}
+          </button>
+          <div style={{ fontSize: 13 }}>{inviteCodesMsg}</div>
+
+          {inviteCodes.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有任何邀請碼</div>}
+          {inviteCodes.map((c) => (
+            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div>
+                <div style={{ fontSize: 14, fontFamily: "monospace" }}>{c.code}</div>
+                <div style={{ fontSize: 12, color: c.used ? "#791F1F" : "#27500A" }}>
+                  {c.used ? `已使用（${c.usedBy || "未知帳號"}）` : "未使用"}
+                </div>
+              </div>
+              <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                {!c.used && (
+                  <>
+                    <button className="btn small secondary" onClick={() => copyInviteCode(c.code)}>複製</button>
+                    <button className="btn small danger" onClick={() => revokeInviteCode(c.id)}>撤銷</button>
+                  </>
+                )}
+              </span>
+            </div>
+          ))}
         </div>
         </>
       )}

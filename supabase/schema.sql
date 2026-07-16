@@ -3,6 +3,16 @@
 
 create extension if not exists "pgcrypto";
 
+-- 一次性邀請碼（給 staff 等級用；owner 還是用固定的環境變數邀請碼，不受影響）
+create table if not exists admin_invite_codes (
+  id          uuid primary key default gen_random_uuid(),
+  code        text not null unique,
+  used        boolean not null default false,
+  used_by     text,
+  created_at  timestamptz default now(),
+  used_at     timestamptz
+);
+
 -- 管理者（後台帳號，跟 members 完全分開，互不影響）
 -- role: 'owner'（最高權限，能碰會員相關工具）／'staff'（一般管理者，不能碰會員資料）
 create table if not exists admins (

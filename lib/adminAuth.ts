@@ -12,12 +12,10 @@ export async function verifyAdminPw(password: string, hash: string): Promise<boo
 }
 
 /** 用哪組邀請碼註冊，決定拿到的權限等級：owner（最高）或 staff（一般） */
-export function resolveRoleFromInviteCode(inviteCode: string): AdminRole {
+/** 只判斷是不是 owner 的固定邀請碼；staff 的邀請碼是一次性的，存在資料庫裡，另外在註冊 API 查詢 */
+export function isOwnerInviteCode(inviteCode: string): boolean {
   const ownerCode = process.env.ADMIN_INVITE_CODE_OWNER || "";
-  const staffCode = process.env.ADMIN_INVITE_CODE_STAFF || "";
-  if (ownerCode && inviteCode === ownerCode) return "owner";
-  if (staffCode && inviteCode === staffCode) return "staff";
-  throw new Error("邀請碼錯誤");
+  return !!ownerCode && inviteCode === ownerCode;
 }
 
 export const SESSION_COOKIE = "mibu_admin_session";
