@@ -1,24 +1,24 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 
-function getResend() {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) throw new Error("尚未設定 RESEND_API_KEY");
-  return new Resend(key);
-}
+let cachedTransporter: ReturnType<typeof nodemailer.createTransport> | null = null;
 
-function fromAddress() {
-  return process.env.EMAIL_FROM || "米舖 <onboarding@resend.dev>";
+function getTransporter() {
+  if (cachedTransporter) return cachedTransporter;
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) throw new Error("尚未設定 GMAIL_USER / GMAIL_APP_PASSWORD");
+
+  cachedTransporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user, pass },
+  });
+  return cachedTransporter;
 }
 
 export async function sendEmail(to: string, subject: string, html: string) {
-  const resend = getResend();
-  const { error } = await resend.emails.send({
-    from: fromAddress(),
-    to,
-    subject,
-    html,
-  });
-  if (error) throw new Error(typeof error === "string" ? error : error.message || "寄信失敗");
+  const transporter = getTransporter();
+  const from = process.env.EMAIL_FROM || `米舖 <${process.env.GMAIL_USER}>`;
+  await transporter.sendMail({ from, to, subject, html });
 }
 
 export function verifyEmailHtml(link: string) {
