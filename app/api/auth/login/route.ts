@@ -27,5 +27,6 @@ export async function POST(req: Request) {
     username: member.username,
     profileUrl: member.profile_url,
     email: member.email,
+    emailVerified: member.email_verified,
   });
 }

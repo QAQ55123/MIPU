@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { hashMemberPw, normFb } from "@/lib/util";
-import { sendEmail, verifyEmailHtml } from "@/lib/resend";
+import { sendEmail, verifyEmailContent } from "@/lib/resend";
 import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 
 export async function POST(req: Request) {
@@ -54,7 +54,8 @@ export async function POST(req: Request) {
   let verifyEmailSent = true;
   try {
     const link = `${getSiteUrl()}/api/auth/verify-email?token=${verifyToken}`;
-    await sendEmail(email, "請驗證你的米舖帳號信箱", verifyEmailHtml(link));
+    const { html, text } = verifyEmailContent(username, link);
+    await sendEmail(email, "請驗證你的米舖帳號信箱", html, text);
   } catch (e) {
     console.error("驗證信寄送失敗：", e);
     verifyEmailSent = false;
@@ -65,6 +66,7 @@ export async function POST(req: Request) {
     username: created.username,
     profileUrl: created.profile_url,
     email: created.email,
+    emailVerified: false,
     verifyEmailSent,
   });
 }

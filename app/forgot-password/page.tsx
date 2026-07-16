@@ -35,7 +35,7 @@ export default function ForgotPasswordPage() {
       <div style={{ maxWidth: 380, margin: "80px auto", padding: 20, textAlign: "center" }}>
         <h2>信已經寄出了</h2>
         <p style={{ color: "#6B6858", fontSize: 14 }}>
-          如果這個 Email 有對應的帳號，我們已經寄了一封重設密碼的連結過去，1 小時內有效。
+          如果這個 Email 有對應的帳號，我們已經寄了一封重設密碼的連結過去，1 小時內有效。如果收件匣沒看到，記得也檢查一下垃圾郵件匣。
         </p>
         <a href="/">回到首頁</a>
       </div>

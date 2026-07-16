@@ -128,7 +128,23 @@ export default function AdminPage() {
       setCurrentEmail(d.email);
       setCurrentEmailVerified(d.emailVerified);
       setAdminEmailPw("");
-      setAdminEmailMsg(d.verifyEmailSent ? "已更新，驗證信已寄出，請去收信點連結驗證。" : "已更新。");
+      setAdminEmailMsg(d.verifyEmailSent ? "已更新，驗證信已寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）。" : "已更新。");
+    } catch (e: any) {
+      setAdminEmailMsg("失敗：" + e.message);
+    } finally {
+      setSavingAdminEmail(false);
+    }
+  }
+
+  async function resendAdminVerification() {
+    setAdminEmailMsg("");
+    if (!adminEmailPw) return setAdminEmailMsg("請先在下面輸入目前的密碼，再點這個按鈕");
+    setSavingAdminEmail(true);
+    try {
+      const d = await callJson("/api/admin/account", "POST", { password: adminEmailPw, newEmail: currentEmail });
+      setCurrentEmailVerified(d.emailVerified);
+      setAdminEmailPw("");
+      setAdminEmailMsg(d.verifyEmailSent ? "驗證信已重新寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）。" : "這個信箱已經驗證過了。");
     } catch (e: any) {
       setAdminEmailMsg("失敗：" + e.message);
     } finally {
@@ -450,12 +466,17 @@ export default function AdminPage() {
         <h3>我的帳號設定</h3>
         <div className="id-row">
           <span className="id-label">目前信箱</span>
-          <span style={{ fontSize: 14 }}>
+          <span style={{ fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
             {currentEmail || "尚未設定"}
             {currentEmail && (
-              <span style={{ marginLeft: 8, fontSize: 12, color: currentEmailVerified ? "#27500A" : "#B08E5A" }}>
+              <span style={{ fontSize: 12, color: currentEmailVerified ? "#27500A" : "#B08E5A" }}>
                 {currentEmailVerified ? "（已驗證）" : "（尚未驗證）"}
               </span>
+            )}
+            {currentEmail && !currentEmailVerified && (
+              <button className="btn small secondary" onClick={resendAdminVerification} disabled={savingAdminEmail}>
+                {savingAdminEmail ? "寄送中…" : "驗證信箱"}
+              </button>
             )}
           </span>
         </div>

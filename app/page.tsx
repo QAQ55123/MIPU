@@ -10,7 +10,7 @@ type Plan = {
 };
 type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
 type CartItem = { name: string; style: string; qty: number };
-type Identity = { username: string; profileUrl: string; email: string } | null;
+type Identity = { username: string; profileUrl: string; email: string; emailVerified: boolean } | null;
 type PendingAction = null | "order" | "history" | "favorites";
 
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
@@ -167,7 +167,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "登入失敗");
-      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email };
+      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified };
       setIdentity(id);
       setLoginPassword("");
       afterAuthSuccess(id);
@@ -201,11 +201,11 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
-      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email };
+      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified };
       setIdentity(id);
       showToast(
         d.verifyEmailSent !== false
-          ? "註冊成功！我們也寄了一封驗證信到你的信箱，記得去點連結驗證"
+          ? "註冊成功！我們也寄了一封驗證信到你的信箱，記得去點連結驗證（如果收件匣沒看到，記得也檢查一下垃圾郵件匣）"
           : "註冊成功！但驗證信寄送失敗了，可以之後到「編輯會員資料」重新觸發寄送"
       );
       afterAuthSuccess(id);
@@ -438,10 +438,32 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAccountProfileMsg(d.error || "更新失敗");
-      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email });
+      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified });
       setAccountNewEmail("");
       setAccountNewProfileUrl("");
-      setAccountProfileMsg(d.verifyEmailSent ? "已更新，驗證信已寄出，請去收信點連結驗證。" : "已更新。");
+      setAccountProfileMsg(d.verifyEmailSent ? "已更新，驗證信已寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）。" : "已更新。");
+    } catch {
+      setAccountProfileMsg("網路連線失敗，請再試一次");
+    } finally {
+      setAccountProfileSaving(false);
+    }
+  }
+
+  async function resendMemberVerification() {
+    setAccountProfileMsg("");
+    if (!identity) return;
+    if (!accountCurrentPw) return setAccountProfileMsg("請先在下面輸入目前的密碼，再點這個按鈕");
+    setAccountProfileSaving(true);
+    try {
+      const r = await fetch("/api/auth/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: identity.username, password: accountCurrentPw, newEmail: identity.email }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setAccountProfileMsg(d.error || "失敗");
+      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified });
+      setAccountProfileMsg(d.verifyEmailSent ? "驗證信已重新寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）。" : "這個信箱已經驗證過了。");
     } catch {
       setAccountProfileMsg("網路連線失敗，請再試一次");
     } finally {
@@ -975,7 +997,20 @@ export default function Home() {
                 <div className="auth-card" style={{ marginTop: 0 }}>
                   <div className="id-row"><span className="id-label">帳號</span><span>{identity.username}</span></div>
                   <div className="id-row"><span className="id-label">個人頁</span><span style={{ wordBreak: "break-all" }}>{identity.profileUrl}</span></div>
-                  <div className="id-row"><span className="id-label">Email</span><span>{identity.email}</span></div>
+                  <div className="id-row">
+                    <span className="id-label">Email</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {identity.email}
+                      <span style={{ fontSize: 12, color: identity.emailVerified ? "#27500A" : "#B08E5A" }}>
+                        {identity.emailVerified ? "（已驗證）" : "（尚未驗證）"}
+                      </span>
+                      {!identity.emailVerified && (
+                        <button className="btn small secondary" onClick={resendMemberVerification} disabled={accountProfileSaving}>
+                          {accountProfileSaving ? "寄送中…" : "驗證信箱"}
+                        </button>
+                      )}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="auth-card">

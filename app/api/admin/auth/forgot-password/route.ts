@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { sendEmail, resetPasswordHtml } from "@/lib/resend";
+import { sendEmail, resetPasswordContent } from "@/lib/resend";
 import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 
 export async function POST(req: Request) {
@@ -17,7 +17,8 @@ export async function POST(req: Request) {
     await supabase.from("admins").update({ reset_token: token, reset_token_expires: hoursFromNow(1) }).eq("id", admin.id);
     try {
       const link = `${getSiteUrl()}/admin/reset-password?token=${token}`;
-      await sendEmail(email, "重設你的米舖後台密碼", resetPasswordHtml(link));
+      const { html, text } = resetPasswordContent(admin.username, link);
+      await sendEmail(email, "重設你的米舖後台密碼", html, text);
     } catch (e) {
       console.error("重設密碼信寄送失敗：", e);
     }

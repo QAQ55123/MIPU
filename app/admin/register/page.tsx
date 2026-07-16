@@ -45,7 +45,7 @@ export default function AdminRegisterPage() {
         <p style={{ color: "#6B6858", fontSize: 14 }}>
           你已經自動登入，可以直接進入後台了。
           {verifyEmailSent
-            ? "我們也寄了一封驗證信到你的信箱，記得去點連結驗證。"
+            ? "我們也寄了一封驗證信到你的信箱，記得去點連結驗證（如果收件匣沒看到，記得也檢查一下垃圾郵件匣）。"
             : "但驗證信寄送失敗了，可以之後到「我的帳號設定」重新觸發寄送。"}
         </p>
         <a className="btn" href="/admin" style={{ display: "inline-block", marginTop: 12, textDecoration: "none" }}>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession, verifyAdminPw } from "@/lib/adminAuth";
-import { sendEmail, verifyEmailHtml } from "@/lib/resend";
+import { sendEmail, verifyEmailContent } from "@/lib/resend";
 import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 
 export async function POST(req: Request) {
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   if (!admin) return NextResponse.json({ error: "找不到帳號" }, { status: 404 });
 
   const ok = await verifyAdminPw(password, admin.password_hash);
-  if (!ok) return NextResponse.json({ error: "密碼錯誤" }, { status: 401 });
+  if (!ok) return NextResponse.json({ error: "密碼錯誤" }, { status: 403 });
 
   if (newEmail === admin.email) {
     if (admin.email_verified) {
@@ -37,7 +37,8 @@ export async function POST(req: Request) {
       .eq("id", admin.id);
     try {
       const link = `${getSiteUrl()}/api/admin/auth/verify-email?token=${verifyToken}`;
-      await sendEmail(admin.email, "請驗證你的米舖後台帳號信箱", verifyEmailHtml(link));
+      const { html, text } = verifyEmailContent(admin.username, link);
+      await sendEmail(admin.email, "請驗證你的米舖後台帳號信箱", html, text);
     } catch (e) {
       console.error("驗證信寄送失敗：", e);
       return NextResponse.json({ error: "驗證信寄送失敗，請確認寄信服務設定是否正確" }, { status: 500 });
@@ -56,7 +57,8 @@ export async function POST(req: Request) {
 
   try {
     const link = `${getSiteUrl()}/api/admin/auth/verify-email?token=${verifyToken}`;
-    await sendEmail(newEmail, "請驗證你的米舖後台帳號信箱", verifyEmailHtml(link));
+    const { html, text } = verifyEmailContent(admin.username, link);
+    await sendEmail(newEmail, "請驗證你的米舖後台帳號信箱", html, text);
   } catch (e) {
     console.error("驗證信寄送失敗：", e);
   }
