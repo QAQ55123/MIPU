@@ -23,6 +23,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [accountCurrentPw, setAccountCurrentPw] = useState("");
+  const [accountPasswordSectionPw, setAccountPasswordSectionPw] = useState("");
   const [accountNewPw, setAccountNewPw] = useState("");
   const [accountConfirmPw, setAccountConfirmPw] = useState("");
   const [accountMsg, setAccountMsg] = useState("");
@@ -480,7 +481,7 @@ export default function Home() {
   async function changeAccountPassword() {
     setAccountMsg("");
     if (!identity) return;
-    if (!accountCurrentPw) return setAccountMsg("請輸入目前的密碼");
+    if (!accountPasswordSectionPw) return setAccountMsg("請輸入目前的密碼");
     if (accountNewPw.length < 6) return setAccountMsg("新密碼至少要 6 個字");
     if (accountNewPw !== accountConfirmPw) return setAccountMsg("兩次輸入的新密碼不一樣");
 
@@ -489,12 +490,12 @@ export default function Home() {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: identity.username, password: accountCurrentPw, newPassword: accountNewPw }),
+        body: JSON.stringify({ username: identity.username, password: accountPasswordSectionPw, newPassword: accountNewPw }),
       });
       const d = await r.json();
       if (!r.ok) return setAccountMsg(d.error || "修改失敗");
       setAccountMsg("密碼已更新");
-      setAccountCurrentPw("");
+      setAccountPasswordSectionPw("");
       setAccountNewPw("");
       setAccountConfirmPw("");
     } catch {
@@ -531,7 +532,8 @@ export default function Home() {
       const parts: string[] = [];
       if (d.verifyEmailSent) parts.push("信箱已更新，驗證信已寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）");
       if (d.profileUrlSubmittedForReview) parts.push("個人頁網址修改申請已送出，需等最高管理者審核通過才會生效");
-      setAccountProfileMsg(parts.length > 0 ? parts.join("；") + "。" : "已更新。");
+      if (d.profileUrlCosmeticUpdate) parts.push("個人頁網址格式已更新（網址本體沒有變，不需要審核）");
+      setAccountProfileMsg(parts.length > 0 ? parts.join("；") + "。" : "沒有偵測到任何變動，請確認有填寫要更新的內容。");
     } catch {
       setAccountProfileMsg("網路連線失敗，請再試一次");
     } finally {
@@ -1167,7 +1169,7 @@ export default function Home() {
                   <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>修改密碼</h3>
                   <div className="id-row">
                     <span className="id-label">目前密碼</span>
-                    <input type="password" value={accountCurrentPw} onChange={(e) => setAccountCurrentPw(e.target.value)} />
+                    <input type="password" value={accountPasswordSectionPw} onChange={(e) => setAccountPasswordSectionPw(e.target.value)} />
                   </div>
                   <div className="id-row">
                     <span className="id-label">新密碼</span>

@@ -45,6 +45,7 @@ export async function POST(req: Request) {
   }
 
   let profileUrlSubmittedForReview = false;
+  let profileUrlCosmeticUpdate = false;
   if (newProfileUrlRaw) {
     const newProfileUrl = /^https?:\/\//i.test(newProfileUrlRaw) ? newProfileUrlRaw : "https://" + newProfileUrlRaw;
     const newProfileUrlNorm = normFb(newProfileUrl);
@@ -57,6 +58,11 @@ export async function POST(req: Request) {
       updates.pending_profile_url = newProfileUrl;
       updates.pending_profile_url_norm = newProfileUrlNorm;
       profileUrlSubmittedForReview = true;
+    } else if (newProfileUrl !== member.profile_url) {
+      // 正規化後其實是同一個網址（例如只是少了 ?locale= 這種查詢參數），
+      // 代表核心網址沒有變，不需要審核，直接更新顯示用的網址就好
+      updates.profile_url = newProfileUrl;
+      profileUrlCosmeticUpdate = true;
     }
   }
 
@@ -87,5 +93,6 @@ export async function POST(req: Request) {
     emailVerified: updated.email_verified,
     verifyEmailSent: sentVerifyEmail,
     profileUrlSubmittedForReview,
+    profileUrlCosmeticUpdate,
   });
 }

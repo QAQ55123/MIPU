@@ -59,7 +59,7 @@ export default function AdminRegisterPage() {
     <div style={{ maxWidth: 380, margin: "60px auto", padding: 20 }}>
       <h2>建立管理者帳號</h2>
       <p style={{ color: "#6B6858", fontSize: 13, marginBottom: 16 }}>
-        這個頁面只給你信任、拿到邀請碼的人使用，用來自己建立後台帳號。你的權限等級（能不能碰會員資料）由你拿到的邀請碼決定，不能自己選。
+        這個頁面只給拿到邀請碼的人使用，用來自己建立後台帳號。
       </p>
 
       <div className="id-row">
