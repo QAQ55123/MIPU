@@ -490,12 +490,12 @@ export default function AdminPage() {
     }
   }
 
-  async function revokeInviteCode(id: string) {
-    if (!confirm("確定要撤銷這組還沒使用過的邀請碼嗎？")) return;
+  async function revokeInviteCode(id: string, used: boolean) {
+    if (!confirm(used ? "確定要刪除這筆已使用的邀請碼紀錄嗎？" : "確定要撤銷這組還沒使用過的邀請碼嗎？")) return;
     setInviteCodesMsg("");
     try {
       await callJson("/api/admin/invite-codes", "DELETE", { id });
-      setInviteCodesMsg("已撤銷。");
+      setInviteCodesMsg(used ? "已刪除紀錄。" : "已撤銷。");
       loadInviteCodes();
     } catch (e: any) {
       setInviteCodesMsg("失敗：" + e.message);
@@ -838,11 +838,13 @@ export default function AdminPage() {
                 </div>
               </div>
               <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                {!c.used && (
+                {!c.used ? (
                   <>
                     <button className="btn small secondary" onClick={() => copyInviteCode(c.code)}>複製</button>
-                    <button className="btn small danger" onClick={() => revokeInviteCode(c.id)}>撤銷</button>
+                    <button className="btn small danger" onClick={() => revokeInviteCode(c.id, false)}>撤銷</button>
                   </>
+                ) : (
+                  <button className="btn small danger" onClick={() => revokeInviteCode(c.id, true)}>刪除紀錄</button>
                 )}
               </span>
             </div>

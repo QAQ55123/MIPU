@@ -70,7 +70,7 @@ export async function DELETE(req: Request) {
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from("admin_invite_codes").delete().eq("id", id).eq("used", false);
+  const { error } = await supabase.from("admin_invite_codes").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
