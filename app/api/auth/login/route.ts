@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { hashMemberPw, verifyMemberPw } from "@/lib/util";
+import { signMemberSession, memberSessionCookieHeader } from "@/lib/memberAuth";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -22,7 +23,8 @@ export async function POST(req: Request) {
     await supabase.from("members").update({ password_hash: newHash }).eq("id", member.id);
   }
 
-  return NextResponse.json({
+  const token = signMemberSession(member.id, member.username);
+  const res = NextResponse.json({
     ok: true,
     username: member.username,
     profileUrl: member.profile_url,
@@ -30,4 +32,6 @@ export async function POST(req: Request) {
     email: member.email,
     emailVerified: member.email_verified,
   });
+  res.headers.set("Set-Cookie", memberSessionCookieHeader(token));
+  return res;
 }

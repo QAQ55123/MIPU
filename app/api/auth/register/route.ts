@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { hashMemberPw, normFb } from "@/lib/util";
 import { sendEmail, verifyEmailContent } from "@/lib/resend";
 import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
+import { signMemberSession, memberSessionCookieHeader } from "@/lib/memberAuth";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -61,7 +62,8 @@ export async function POST(req: Request) {
     verifyEmailSent = false;
   }
 
-  return NextResponse.json({
+  const token = signMemberSession(created.id, created.username);
+  const res = NextResponse.json({
     ok: true,
     username: created.username,
     profileUrl: created.profile_url,
@@ -69,4 +71,6 @@ export async function POST(req: Request) {
     emailVerified: false,
     verifyEmailSent,
   });
+  res.headers.set("Set-Cookie", memberSessionCookieHeader(token));
+  return res;
 }

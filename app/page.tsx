@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight, Heart } from "lucide-react";
 
 type Category = { id: string; name: string; parentId: string | null };
@@ -18,6 +18,8 @@ const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
 export default function Home() {
   const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account" | "favorites">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
+  const identityRef = useRef<Identity>(null);
+  useEffect(() => { identityRef.current = identity; }, [identity]);
   const [toast, setToast] = useState("");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [accountCurrentPw, setAccountCurrentPw] = useState("");
@@ -49,6 +51,31 @@ export default function Home() {
   const [registerDone, setRegisterDone] = useState(false);
   const [registerVerifyEmailSent, setRegisterVerifyEmailSent] = useState(true);
   const [verifyBannerMsg, setVerifyBannerMsg] = useState("");
+  const restoringFromHistoryRef = useRef(false);
+
+  function syncUrl(params: Record<string, string>) {
+    if (restoringFromHistoryRef.current) return;
+    const qs = new URLSearchParams(params).toString();
+    const newUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.pushState(params, "", newUrl);
+  }
+
+  function restoreFromUrlParams(params: URLSearchParams) {
+    const v = params.get("view");
+    if (v === "plan") {
+      const id = params.get("id");
+      if (id) openPlan({ id } as Plan);
+    } else if (v === "history" && identityRef.current) {
+      openHistoryNow();
+    } else if (v === "favorites" && identityRef.current) {
+      openFavoritesNow();
+    } else if (v === "account" && identityRef.current) {
+      setView("account");
+    } else {
+      const category = params.get("category");
+      loadPlans(category || null, "");
+    }
+  }
 
   // categories / navigation
   const [categories, setCategories] = useState<Category[]>([]);
@@ -75,7 +102,6 @@ export default function Home() {
 
   useEffect(() => {
     fetch("/api/categories", { cache: "no-store" }).then((r) => r.json()).then((d) => setCategories(d.categories || []));
-    loadPlans();
 
     const params = new URLSearchParams(window.location.search);
     const verify = params.get("verify");
@@ -87,6 +113,37 @@ export default function Home() {
       setView("identity");
     }
     if (verify || openLogin) window.history.replaceState({}, "", window.location.pathname);
+
+    // 先確認有沒有保持登入的 session（重新整理網頁不會登出），確認完才還原網址對應的畫面
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.loggedIn) {
+          const id: Identity = {
+            username: d.username,
+            profileUrl: d.profileUrl,
+            email: d.email,
+            emailVerified: d.emailVerified,
+            pendingProfileUrl: d.pendingProfileUrl,
+          };
+          identityRef.current = id;
+          setIdentity(id);
+        }
+        if (!openLogin) {
+          restoringFromHistoryRef.current = true;
+          restoreFromUrlParams(params);
+          restoringFromHistoryRef.current = false;
+        }
+      });
+
+    // 支援瀏覽器上一頁／下一頁
+    function onPopState() {
+      restoringFromHistoryRef.current = true;
+      restoreFromUrlParams(new URLSearchParams(window.location.search));
+      restoringFromHistoryRef.current = false;
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   function showToast(msg: string) {
@@ -110,6 +167,7 @@ export default function Home() {
     setSelectedCategoryId(id);
     loadPlans(id, searchQuery);
     setMobileDrawerOpen(false);
+    syncUrl(id ? { view: "plans", category: id } : {});
     // 選到有子分類的分類時，自動展開，不用另外去點小箭頭
     if (id && categories.some((c) => c.parentId === id)) {
       setExpandedIds((prev) => new Set(prev).add(id));
@@ -143,6 +201,7 @@ export default function Home() {
 
   // 逛企劃、看商品完全不需要登入；只有「送出訂單」「查歷史訂單」才會要求先選身分
   async function openPlan(p: Plan) {
+    syncUrl({ view: "plan", id: p.id });
     setView("order");
     setActivePlan(null);
     setProducts([]);
@@ -157,10 +216,21 @@ export default function Home() {
     setProductsLoading(false);
   }
 
+  function clearAuthForms() {
+    setLoginUsername("");
+    setLoginPassword("");
+    setRegUsername("");
+    setRegPassword("");
+    setRegConfirmPassword("");
+    setRegProfileUrl("");
+    setRegEmail("");
+  }
+
   function requireIdentity(action: PendingAction) {
     setPendingAction(action);
     setAuthMsg("");
     setRegisterDone(false);
+    clearAuthForms();
     setView("identity");
   }
 
@@ -212,6 +282,7 @@ export default function Home() {
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
       const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl };
       setIdentity(id);
+      clearAuthForms();
       setRegisterVerifyEmailSent(d.verifyEmailSent !== false);
       setRegisterDone(true);
     } catch {
@@ -244,7 +315,7 @@ export default function Home() {
   }
 
   async function loadFavorites(useIdentity?: Identity) {
-    const id = useIdentity || identity;
+    const id = useIdentity || identityRef.current;
     if (!id) return;
     const r = await fetch(`/api/favorites?username=${encodeURIComponent(id.username)}`, { cache: "no-store" });
     const d = await r.json();
@@ -300,8 +371,9 @@ export default function Home() {
   }
 
   async function openFavoritesNow(useIdentity?: Identity) {
-    const id = useIdentity || identity;
+    const id = useIdentity || identityRef.current;
     if (!id) return;
+    syncUrl({ view: "favorites" });
     setView("favorites");
     setCategoryQuickOpen(false);
     setFavoritesLoading(true);
@@ -377,8 +449,9 @@ export default function Home() {
   }
 
   async function openHistoryNow(useIdentity?: Identity) {
-    const id = useIdentity || identity;
+    const id = useIdentity || identityRef.current;
     if (!id) return;
+    syncUrl({ view: "history" });
     setView("history");
     setCategoryQuickOpen(false);
     setHistoryLoading(true);
@@ -492,6 +565,16 @@ export default function Home() {
     setSelectedCategoryId(null);
     loadPlans(null, "");
     setSearchQuery("");
+    syncUrl({});
+  }
+
+  async function logout() {
+    setIdentity(null);
+    identityRef.current = null;
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    goHome();
   }
 
   // ---- 麵包屑 ----
@@ -528,7 +611,7 @@ export default function Home() {
         </div>
         <div
           className={`account-nav-item ${view === "account" ? "active" : ""}`}
-          onClick={() => { setView("account"); setAccountMsg(""); setCategoryQuickOpen(false); if (closeAfterSelect) setMobileDrawerOpen(false); }}
+          onClick={() => { syncUrl({ view: "account" }); setView("account"); setAccountMsg(""); setCategoryQuickOpen(false); if (closeAfterSelect) setMobileDrawerOpen(false); }}
         >
           編輯會員資料
         </div>
@@ -685,7 +768,7 @@ export default function Home() {
                   </div>
                 </div>
                 {identity ? (
-                  <button className="mibu-auth-link" onClick={() => { setIdentity(null); goHome(); }}>登出</button>
+                  <button className="mibu-auth-link" onClick={logout}>登出</button>
                 ) : (
                   <button className="mibu-auth-link" onClick={() => requireIdentity(null)}>登入 / 註冊</button>
                 )}
