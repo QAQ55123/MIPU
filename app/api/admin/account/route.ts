@@ -26,7 +26,23 @@ export async function POST(req: Request) {
   if (!ok) return NextResponse.json({ error: "密碼錯誤" }, { status: 401 });
 
   if (newEmail === admin.email) {
-    return NextResponse.json({ ok: true, email: admin.email, emailVerified: admin.email_verified, verifyEmailSent: false });
+    if (admin.email_verified) {
+      return NextResponse.json({ ok: true, email: admin.email, emailVerified: true, verifyEmailSent: false });
+    }
+    // 信箱沒變，但還沒驗證過：重新寄一次驗證信
+    const verifyToken = genToken();
+    await supabase
+      .from("admins")
+      .update({ verify_token: verifyToken, verify_token_expires: hoursFromNow(24) })
+      .eq("id", admin.id);
+    try {
+      const link = `${getSiteUrl()}/api/admin/auth/verify-email?token=${verifyToken}`;
+      await sendEmail(admin.email, "請驗證你的米舖後台帳號信箱", verifyEmailHtml(link));
+    } catch (e) {
+      console.error("驗證信寄送失敗：", e);
+      return NextResponse.json({ error: "驗證信寄送失敗，請確認寄信服務設定是否正確" }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, email: admin.email, emailVerified: false, verifyEmailSent: true });
   }
 
   const { data: existing } = await supabase.from("admins").select("id").ilike("email", newEmail).neq("id", admin.id).maybeSingle();

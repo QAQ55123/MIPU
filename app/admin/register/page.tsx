@@ -9,6 +9,7 @@ export default function AdminRegisterPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [msg, setMsg] = useState("");
   const [done, setDone] = useState(false);
+  const [verifyEmailSent, setVerifyEmailSent] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit() {
@@ -28,6 +29,7 @@ export default function AdminRegisterPage() {
       });
       const d = await r.json();
       if (!r.ok) return setMsg(d.error || "註冊失敗");
+      setVerifyEmailSent(d.verifyEmailSent !== false);
       setDone(true);
     } catch {
       setMsg("網路連線失敗，請再試一次");
@@ -40,7 +42,12 @@ export default function AdminRegisterPage() {
     return (
       <div style={{ maxWidth: 380, margin: "80px auto", padding: 20, textAlign: "center" }}>
         <h2>註冊成功</h2>
-        <p style={{ color: "#6B6858", fontSize: 14 }}>你已經自動登入，可以直接進入後台了。我們也寄了一封驗證信到你的信箱，記得去點連結驗證。</p>
+        <p style={{ color: "#6B6858", fontSize: 14 }}>
+          你已經自動登入，可以直接進入後台了。
+          {verifyEmailSent
+            ? "我們也寄了一封驗證信到你的信箱，記得去點連結驗證。"
+            : "但驗證信寄送失敗了，可以之後到「我的帳號設定」重新觸發寄送。"}
+        </p>
         <a className="btn" href="/admin" style={{ display: "inline-block", marginTop: 12, textDecoration: "none" }}>
           前往後台
         </a>

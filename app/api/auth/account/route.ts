@@ -36,6 +36,12 @@ export async function POST(req: Request) {
     updates.verify_token = verifyToken;
     updates.verify_token_expires = hoursFromNow(24);
     sentVerifyEmail = true;
+  } else if (newEmail && newEmail === member.email && !member.email_verified) {
+    // 信箱沒變，但還沒驗證過：重新寄一次驗證信
+    const verifyToken = genToken();
+    updates.verify_token = verifyToken;
+    updates.verify_token_expires = hoursFromNow(24);
+    sentVerifyEmail = true;
   }
 
   if (newProfileUrlRaw) {
@@ -55,11 +61,13 @@ export async function POST(req: Request) {
   }
 
   if (sentVerifyEmail) {
+    const targetEmail = updates.email || member.email;
     try {
       const link = `${getSiteUrl()}/api/auth/verify-email?token=${updates.verify_token}`;
-      await sendEmail(updates.email, "請驗證你的新信箱", verifyEmailHtml(link));
+      await sendEmail(targetEmail, "請驗證你的信箱", verifyEmailHtml(link));
     } catch (e) {
       console.error("驗證信寄送失敗：", e);
+      return NextResponse.json({ error: "驗證信寄送失敗，請稍後再試" }, { status: 500 });
     }
   }
 

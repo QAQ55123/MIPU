@@ -203,7 +203,11 @@ export default function Home() {
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
       const id = { username: d.username, profileUrl: d.profileUrl, email: d.email };
       setIdentity(id);
-      showToast("註冊成功！我們也寄了一封驗證信到你的信箱，記得去點連結驗證");
+      showToast(
+        d.verifyEmailSent !== false
+          ? "註冊成功！我們也寄了一封驗證信到你的信箱，記得去點連結驗證"
+          : "註冊成功！但驗證信寄送失敗了，可以之後到「編輯會員資料」重新觸發寄送"
+      );
       afterAuthSuccess(id);
     } catch {
       setAuthMsg("網路連線失敗，請再試一次");

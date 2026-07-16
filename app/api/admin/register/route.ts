@@ -44,16 +44,18 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // 寄驗證信（就算寄信失敗也不擋註冊流程，只是提醒使用者信箱還沒驗證）
+  // 寄驗證信（就算寄信失敗也不擋註冊流程，只是要讓前端知道信有沒有真的寄出去）
+  let verifyEmailSent = true;
   try {
     const link = `${getSiteUrl()}/api/admin/auth/verify-email?token=${verifyToken}`;
     await sendEmail(email, "請驗證你的米舖後台帳號信箱", verifyEmailHtml(link));
   } catch (e) {
     console.error("驗證信寄送失敗：", e);
+    verifyEmailSent = false;
   }
 
   const token = signSession(created.id, created.username, created.role);
-  const res = NextResponse.json({ ok: true, username: created.username, role: created.role });
+  const res = NextResponse.json({ ok: true, username: created.username, role: created.role, verifyEmailSent });
   res.headers.set("Set-Cookie", sessionCookieHeader(token));
   return res;
 }

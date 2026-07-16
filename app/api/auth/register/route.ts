@@ -50,12 +50,14 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // 寄驗證信（寄信失敗也不擋註冊流程）
+  // 寄驗證信（就算寄信失敗也不擋註冊流程，只是要讓前端知道信有沒有真的寄出去）
+  let verifyEmailSent = true;
   try {
     const link = `${getSiteUrl()}/api/auth/verify-email?token=${verifyToken}`;
     await sendEmail(email, "請驗證你的米舖帳號信箱", verifyEmailHtml(link));
   } catch (e) {
     console.error("驗證信寄送失敗：", e);
+    verifyEmailSent = false;
   }
 
   return NextResponse.json({
@@ -63,5 +65,6 @@ export async function POST(req: Request) {
     username: created.username,
     profileUrl: created.profile_url,
     email: created.email,
+    verifyEmailSent,
   });
 }
