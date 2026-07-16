@@ -28,6 +28,7 @@ export default function AdminPage() {
   const [adminEmailMsg, setAdminEmailMsg] = useState("");
   const [savingAdminEmail, setSavingAdminEmail] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "members" | "codes">("account");
   const [unlocked, setUnlocked] = useState(false);
 
   // ---- 分類 ----
@@ -537,7 +538,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: 20 }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2>米舖 後台</h2>
         <div style={{ fontSize: 13, color: "#6B6858", display: "flex", alignItems: "center", gap: 10 }}>
@@ -545,9 +546,24 @@ export default function AdminPage() {
           <button className="btn secondary small" onClick={doLogout}>登出</button>
         </div>
       </div>
-      <p style={{ color: "#8A8779", fontSize: 13 }}>登入超過 8 小時會自動要求重新登入。</p>
+      <p style={{ color: "#8A8779", fontSize: 13, marginBottom: 16 }}>登入超過 8 小時會自動要求重新登入。</p>
 
-      {/* ---------------- 我的帳號設定 ---------------- */}
+      <div className="mibu-content-row" style={{ alignItems: "flex-start" }}>
+        <aside className="category-sidebar-desktop account-sidebar-active" style={{ position: "static" }}>
+          <p className="category-tree-title">後台功能</p>
+          <div className={`account-nav-item ${activeSection === "account" ? "active" : ""}`} onClick={() => setActiveSection("account")}>帳號設定</div>
+          <div className={`account-nav-item ${activeSection === "categories" ? "active" : ""}`} onClick={() => setActiveSection("categories")}>分類管理</div>
+          <div className={`account-nav-item ${activeSection === "plans" ? "active" : ""}`} onClick={() => setActiveSection("plans")}>企劃管理</div>
+          {currentRole === "owner" && (
+            <>
+              <div className={`account-nav-item ${activeSection === "members" ? "active" : ""}`} onClick={() => setActiveSection("members")}>會員管理</div>
+              <div className={`account-nav-item ${activeSection === "codes" ? "active" : ""}`} onClick={() => setActiveSection("codes")}>邀請碼管理</div>
+            </>
+          )}
+        </aside>
+
+        <main style={{ flex: 1, minWidth: 0 }}>
+          {activeSection === "account" && (
       <div className="auth-card">
         <h3>我的帳號設定</h3>
         <div className="id-row">
@@ -577,8 +593,9 @@ export default function AdminPage() {
         <button className="btn" onClick={saveAdminEmail} disabled={savingAdminEmail}>{savingAdminEmail ? "儲存中…" : "更新信箱"}</button>
         <div style={{ fontSize: 13, marginTop: 6 }}>{adminEmailMsg}</div>
       </div>
+          )}
 
-      {/* ---------------- 分類管理 ---------------- */}
+          {activeSection === "categories" && (
       <div className="auth-card">
         <h3>分類管理</h3>
         <div style={{ marginBottom: 12 }}>
@@ -624,8 +641,10 @@ export default function AdminPage() {
         </div>
         <div style={{ fontSize: 13, marginTop: 6 }}>{categoryMsg}</div>
       </div>
+          )}
 
-      {/* ---------------- 企劃管理 ---------------- */}
+          {activeSection === "plans" && (
+            <>
       <div className="auth-card">
         <h3>企劃管理</h3>
         <div style={{ marginBottom: 12 }}>
@@ -709,7 +728,6 @@ export default function AdminPage() {
         <div style={{ fontSize: 13, marginTop: 6 }}>{planMsg}</div>
       </div>
 
-      {/* ---------------- 商品管理 ---------------- */}
       {activePlanForProducts && (
         <div className="auth-card">
           <h3>商品管理：{activePlanForProducts.name}</h3>
@@ -778,10 +796,11 @@ export default function AdminPage() {
           <div style={{ fontSize: 13, marginTop: 6 }}>{productMsg}</div>
         </div>
       )}
+            </>
+          )}
 
-      {/* ---------------- 會員相關工具（僅限最高權限） ---------------- */}
-      {currentRole === "owner" && (
-        <>
+          {activeSection === "members" && currentRole === "owner" && (
+            <>
         <div className="auth-card">
           <h3>合併會員</h3>
           <div className="id-row"><span className="id-label">保留 ID</span><input type="text" value={keepId} onChange={(e) => setKeepId(e.target.value)} /></div>
@@ -817,7 +836,10 @@ export default function AdminPage() {
           ))}
           <div style={{ fontSize: 13, marginTop: 6 }}>{profileRequestsMsg}</div>
         </div>
+            </>
+          )}
 
+          {activeSection === "codes" && currentRole === "owner" && (
         <div className="auth-card">
           <h3>Staff 邀請碼管理</h3>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
@@ -850,8 +872,9 @@ export default function AdminPage() {
             </div>
           ))}
         </div>
-        </>
-      )}
+          )}
+        </main>
+      </div>
     </div>
   );
 }
