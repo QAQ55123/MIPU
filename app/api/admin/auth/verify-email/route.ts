@@ -7,14 +7,14 @@ export async function GET(req: Request) {
   const token = searchParams.get("token") || "";
   const site = getSiteUrl();
 
-  if (!token) return NextResponse.redirect(`${site}/admin?verify=missing`);
+  if (!token) return NextResponse.redirect(`${site}/email-verified?status=invalid&returnTo=/admin`);
 
   const supabase = getSupabaseAdmin();
   const { data: admin } = await supabase.from("admins").select("*").eq("verify_token", token).maybeSingle();
   if (!admin || isExpired(admin.verify_token_expires)) {
-    return NextResponse.redirect(`${site}/admin?verify=invalid`);
+    return NextResponse.redirect(`${site}/email-verified?status=invalid&returnTo=/admin`);
   }
 
   await supabase.from("admins").update({ email_verified: true, verify_token: null, verify_token_expires: null }).eq("id", admin.id);
-  return NextResponse.redirect(`${site}/admin?verify=success`);
+  return NextResponse.redirect(`${site}/email-verified?status=success&returnTo=/admin`);
 }

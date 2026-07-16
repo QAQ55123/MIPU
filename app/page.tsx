@@ -46,6 +46,8 @@ export default function Home() {
   const [regEmail, setRegEmail] = useState("");
   const [authMsg, setAuthMsg] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [registerDone, setRegisterDone] = useState(false);
+  const [registerVerifyEmailSent, setRegisterVerifyEmailSent] = useState(true);
   const [verifyBannerMsg, setVerifyBannerMsg] = useState("");
 
   // categories / navigation
@@ -79,7 +81,12 @@ export default function Home() {
     const verify = params.get("verify");
     if (verify === "success") setVerifyBannerMsg("信箱驗證成功！");
     else if (verify === "invalid") setVerifyBannerMsg("驗證連結無效或已過期。");
-    if (verify) window.history.replaceState({}, "", window.location.pathname);
+    const openLogin = params.get("openLogin");
+    if (openLogin) {
+      setAuthTab("login");
+      setView("identity");
+    }
+    if (verify || openLogin) window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
   function showToast(msg: string) {
@@ -153,6 +160,7 @@ export default function Home() {
   function requireIdentity(action: PendingAction) {
     setPendingAction(action);
     setAuthMsg("");
+    setRegisterDone(false);
     setView("identity");
   }
 
@@ -204,12 +212,8 @@ export default function Home() {
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
       const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified };
       setIdentity(id);
-      showToast(
-        d.verifyEmailSent !== false
-          ? "註冊成功！我們也寄了一封驗證信到你的信箱，記得去點連結驗證（如果收件匣沒看到，記得也檢查一下垃圾郵件匣）"
-          : "註冊成功！但驗證信寄送失敗了，可以之後到「編輯會員資料」重新觸發寄送"
-      );
-      afterAuthSuccess(id);
+      setRegisterVerifyEmailSent(d.verifyEmailSent !== false);
+      setRegisterDone(true);
     } catch {
       setAuthMsg("網路連線失敗，請再試一次");
     } finally {
@@ -218,6 +222,11 @@ export default function Home() {
   }
 
   // 登入成功後，回到原本想做的事（送出訂單 / 查歷史），沒有的話就回企劃列表
+  function continueAfterRegister() {
+    setRegisterDone(false);
+    if (identity) afterAuthSuccess(identity);
+  }
+
   function afterAuthSuccess(id: Identity) {
     const action = pendingAction;
     setPendingAction(null);
@@ -697,59 +706,73 @@ export default function Home() {
       {view === "identity" ? (
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
           <div className="auth-card">
-            <a className="auth-back-link" onClick={() => { setPendingAction(null); setView("plans"); }}>← 返回</a>
-            {verifyBannerMsg && <div className="rules-box">{verifyBannerMsg}</div>}
-            {pendingAction === "order" && <div className="rules-box">送出訂單前，請先登入</div>}
-            {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先登入</div>}
-            {pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先登入</div>}
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              <button className={`src-btn ${authTab === "login" ? "active" : ""}`} onClick={() => { setAuthTab("login"); setAuthMsg(""); }}>登入</button>
-              <button className={`src-btn ${authTab === "register" ? "active" : ""}`} onClick={() => { setAuthTab("register"); setAuthMsg(""); }}>註冊新帳號</button>
-            </div>
-
-            {authTab === "login" ? (
-              <>
-                <h2 className="section-title">登入</h2>
-                <div className="id-row">
-                  <span className="id-label">帳號</span>
-                  <input type="text" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} />
-                </div>
-                <div className="id-row">
-                  <span className="id-label">密碼</span>
-                  <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} />
-                </div>
-                <div className="auth-msg">{authMsg}</div>
-                <button className="btn" onClick={onLogin} disabled={authSubmitting}>{authSubmitting ? "登入中…" : "登入"}</button>
-                <p style={{ fontSize: 13, marginTop: 10 }}>
-                  <a href="/forgot-password" style={{ color: "var(--muted)" }}>忘記密碼？</a>
+            {registerDone ? (
+              <div style={{ textAlign: "center" }}>
+                <h2 className="section-title">註冊成功</h2>
+                <p style={{ color: "#6B6858", fontSize: 14 }}>
+                  {registerVerifyEmailSent
+                    ? "我們已經寄了一封驗證信到你的信箱，記得去點連結驗證（如果收件匣沒看到，記得也檢查一下垃圾郵件匣）。"
+                    : "但驗證信寄送失敗了，可以之後到「編輯會員資料」重新觸發寄送。"}
                 </p>
-              </>
+                <button className="btn" onClick={continueAfterRegister}>開始逛逛</button>
+              </div>
             ) : (
               <>
-                <h2 className="section-title">建立新帳號</h2>
-                <div className="id-row">
-                  <span className="id-label">帳號</span>
-                  <input type="text" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="至少 3 個字" />
+                <a className="auth-back-link" onClick={() => { setPendingAction(null); setView("plans"); }}>← 返回</a>
+                {verifyBannerMsg && <div className="rules-box">{verifyBannerMsg}</div>}
+                {pendingAction === "order" && <div className="rules-box">送出訂單前，請先登入</div>}
+                {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先登入</div>}
+                {pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先登入</div>}
+
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                  <button className={`src-btn ${authTab === "login" ? "active" : ""}`} onClick={() => { setAuthTab("login"); setAuthMsg(""); }}>登入</button>
+                  <button className={`src-btn ${authTab === "register" ? "active" : ""}`} onClick={() => { setAuthTab("register"); setAuthMsg(""); }}>註冊新帳號</button>
                 </div>
-                <div className="id-row">
-                  <span className="id-label">密碼</span>
-                  <input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="至少 6 個字" />
-                </div>
-                <div className="id-row">
-                  <span className="id-label">確認密碼</span>
-                  <input type="password" value={regConfirmPassword} onChange={(e) => setRegConfirmPassword(e.target.value)} placeholder="再輸入一次" />
-                </div>
-                <div className="id-row">
-                  <span className="id-label">個人頁網址</span>
-                  <input type="text" value={regProfileUrl} onChange={(e) => setRegProfileUrl(e.target.value)} placeholder="例如你的 FB 個人首頁網址" />
-                </div>
-                <div className="id-row">
-                  <span className="id-label">Email</span>
-                  <input type="text" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="請留下可收信的信箱，會寄驗證信" />
-                </div>
-                <div className="auth-msg">{authMsg}</div>
-                <button className="btn" onClick={onRegister} disabled={authSubmitting}>{authSubmitting ? "建立中…" : "註冊"}</button>
+
+                {authTab === "login" ? (
+                  <>
+                    <h2 className="section-title">登入</h2>
+                    <div className="id-row">
+                      <span className="id-label">帳號</span>
+                      <input type="text" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} />
+                    </div>
+                    <div className="id-row">
+                      <span className="id-label">密碼</span>
+                      <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} />
+                    </div>
+                    <div className="auth-msg">{authMsg}</div>
+                    <button className="btn" onClick={onLogin} disabled={authSubmitting}>{authSubmitting ? "登入中…" : "登入"}</button>
+                    <p style={{ fontSize: 13, marginTop: 10 }}>
+                      <a href="/forgot-password" style={{ color: "var(--muted)" }}>忘記密碼？</a>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="section-title">建立新帳號</h2>
+                    <div className="id-row">
+                      <span className="id-label">帳號</span>
+                      <input type="text" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="至少 3 個字" />
+                    </div>
+                    <div className="id-row">
+                      <span className="id-label">密碼</span>
+                      <input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="至少 6 個字" />
+                    </div>
+                    <div className="id-row">
+                      <span className="id-label">確認密碼</span>
+                      <input type="password" value={regConfirmPassword} onChange={(e) => setRegConfirmPassword(e.target.value)} placeholder="再輸入一次" />
+                    </div>
+                    <div className="id-row">
+                      <span className="id-label">個人頁網址</span>
+                      <input type="text" value={regProfileUrl} onChange={(e) => setRegProfileUrl(e.target.value)} placeholder="例如你的 FB 個人首頁網址" />
+                    </div>
+                    <div className="id-row">
+                      <span className="id-label">Email</span>
+                      <input type="text" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="請留下可收信的信箱，會寄驗證信" />
+                    </div>
+                    <div className="auth-msg">{authMsg}</div>
+                    <button className="btn" onClick={onRegister} disabled={authSubmitting}>{authSubmitting ? "建立中…" : "註冊"}</button>
+                  </>
+                )}
               </>
             )}
           </div>
