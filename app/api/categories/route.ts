@@ -9,7 +9,7 @@ export async function GET() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("categories")
-    .select("id, name, parent_id, sort_order")
+    .select("id, name, parent_id, sort_order, created_at")
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -20,6 +20,7 @@ export async function GET() {
         id: c.id,
         name: c.name,
         parentId: c.parent_id,
+        createdAt: c.created_at,
       })),
     },
     { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } }

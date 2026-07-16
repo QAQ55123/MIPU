@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Category = { id: string; name: string; parent_id: string | null };
+type Category = { id: string; name: string; parent_id: string | null; created_at?: string };
 type PlanAdmin = {
   id: string; name: string; deadline: string | null; imageUrl: string | null;
   codLimit: number; visibleTo: string[]; categoryId: string | null; categoryName: string | null;
@@ -52,9 +52,6 @@ export default function AdminPage() {
   const [uploadingProductImg, setUploadingProductImg] = useState(false);
 
   // ---- 其他既有工具 ----
-  const [keepId, setKeepId] = useState("");
-  const [removeId, setRemoveId] = useState("");
-  const [mergeMsg, setMergeMsg] = useState("");
   const [resetUsername, setResetUsername] = useState("");
   const [resetMsg, setResetMsg] = useState("");
   const [profileRequests, setProfileRequests] = useState<any[]>([]);
@@ -202,7 +199,7 @@ export default function AdminPage() {
   async function loadCategories() {
     const r = await fetch("/api/categories", { cache: "no-store" });
     const d = await r.json();
-    setCategories((d.categories || []).map((c: any) => ({ id: c.id, name: c.name, parent_id: c.parentId })));
+    setCategories((d.categories || []).map((c: any) => ({ id: c.id, name: c.name, parent_id: c.parentId, created_at: c.createdAt })));
   }
 
   function editCategory(c: Category) {
@@ -236,9 +233,12 @@ export default function AdminPage() {
     }
   }
 
-  const topCategories = categories.filter((c) => !c.parent_id);
+  function byCreatedAtAsc(a: Category, b: Category) {
+    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+  }
+  const topCategories = categories.filter((c) => !c.parent_id).sort(byCreatedAtAsc);
   function childrenOf(id: string) {
-    return categories.filter((c) => c.parent_id === id);
+    return categories.filter((c) => c.parent_id === id).sort(byCreatedAtAsc);
   }
 
   // ================= 企劃 =================
@@ -414,15 +414,6 @@ export default function AdminPage() {
   }
 
   // ================= 既有工具 =================
-  async function doMerge() {
-    if (!keepId || !removeId) return setMergeMsg("請填兩個會員 ID");
-    setMergeMsg("合併中…");
-    try {
-      const d = await callJson("/api/admin/merge", "POST", { keepId, removeId });
-      setMergeMsg(`完成，改寫 ${d.changed} 筆訂單。`);
-    } catch (e: any) { setMergeMsg("失敗：" + e.message); }
-  }
-
   async function doReset() {
     if (!resetUsername) return setResetMsg("請填帳號");
     setResetMsg("重設中…");
@@ -598,7 +589,7 @@ export default function AdminPage() {
           {activeSection === "categories" && (
       <div className="auth-card">
         <h3>分類管理</h3>
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 12, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
           {topCategories.map((c) => (
             <div key={c.id} style={{ marginBottom: 6 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, fontWeight: 600 }}>
@@ -647,7 +638,7 @@ export default function AdminPage() {
             <>
       <div className="auth-card">
         <h3>企劃管理</h3>
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 12, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
           {plans.map((p) => (
             <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
               <div>
@@ -801,14 +792,6 @@ export default function AdminPage() {
 
           {activeSection === "members" && currentRole === "owner" && (
             <>
-        <div className="auth-card">
-          <h3>合併會員</h3>
-          <div className="id-row"><span className="id-label">保留 ID</span><input type="text" value={keepId} onChange={(e) => setKeepId(e.target.value)} /></div>
-          <div className="id-row"><span className="id-label">併掉 ID</span><input type="text" value={removeId} onChange={(e) => setRemoveId(e.target.value)} /></div>
-          <button className="btn" onClick={doMerge}>合併</button>
-          <div style={{ fontSize: 13 }}>{mergeMsg}</div>
-        </div>
-
         <div className="auth-card">
           <h3>重設會員密碼</h3>
           <div className="id-row"><span className="id-label">帳號</span><input type="text" value={resetUsername} onChange={(e) => setResetUsername(e.target.value)} /></div>
