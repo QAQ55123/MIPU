@@ -78,6 +78,8 @@ create table if not exists members (
   verify_token_expires  timestamptz,
   reset_token           text,
   reset_token_expires   timestamptz,
+  pending_profile_url      text,          -- 使用者申請修改個人頁網址，要等最高管理者審核通過才會生效
+  pending_profile_url_norm text,
   created_at            timestamptz default now()
 );
 create unique index if not exists idx_members_username on members (lower(username));

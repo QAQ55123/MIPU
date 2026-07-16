@@ -56,6 +56,8 @@ export default function AdminPage() {
   const [mergeMsg, setMergeMsg] = useState("");
   const [resetUsername, setResetUsername] = useState("");
   const [resetMsg, setResetMsg] = useState("");
+  const [profileRequests, setProfileRequests] = useState<any[]>([]);
+  const [profileRequestsMsg, setProfileRequestsMsg] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/session")
@@ -83,8 +85,9 @@ export default function AdminPage() {
     if (unlocked) {
       loadCategories();
       loadPlans();
+      if (currentRole === "owner") loadProfileRequests();
     }
-  }, [unlocked]);
+  }, [unlocked, currentRole]);
 
   async function doLogin() {
     setLoginMsg("");
@@ -422,6 +425,40 @@ export default function AdminPage() {
     } catch (e: any) { setResetMsg("失敗：" + e.message); }
   }
 
+  async function loadProfileRequests() {
+    try {
+      const r = await fetch("/api/admin/profile-requests", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setProfileRequests(d.requests || []);
+    } catch {
+      setProfileRequestsMsg("載入失敗");
+    }
+  }
+
+  async function approveProfileRequest(memberId: string) {
+    setProfileRequestsMsg("處理中…");
+    try {
+      await callJson("/api/admin/profile-requests", "POST", { memberId });
+      setProfileRequestsMsg("已核准。");
+      loadProfileRequests();
+    } catch (e: any) {
+      setProfileRequestsMsg("失敗：" + e.message);
+    }
+  }
+
+  async function rejectProfileRequest(memberId: string) {
+    if (!confirm("確定要拒絕這個個人頁網址修改申請嗎？")) return;
+    setProfileRequestsMsg("處理中…");
+    try {
+      await callJson("/api/admin/profile-requests", "DELETE", { memberId });
+      setProfileRequestsMsg("已拒絕。");
+      loadProfileRequests();
+    } catch (e: any) {
+      setProfileRequestsMsg("失敗：" + e.message);
+    }
+  }
+
   if (checkingSession) {
     return <div style={{ textAlign: "center", padding: 60, color: "#8A8779" }}>載入中…</div>;
   }
@@ -710,6 +747,27 @@ export default function AdminPage() {
           <div className="id-row"><span className="id-label">帳號</span><input type="text" value={resetUsername} onChange={(e) => setResetUsername(e.target.value)} /></div>
           <button className="btn" onClick={doReset}>重設為 0000</button>
           <div style={{ fontSize: 13 }}>{resetMsg}</div>
+        </div>
+
+        <div className="auth-card">
+          <h3>個人頁網址修改審核</h3>
+          {profileRequests.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有待審核的申請</div>}
+          {profileRequests.map((r) => (
+            <div key={r.memberId} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{r.username}</div>
+              <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>
+                目前：<span style={{ wordBreak: "break-all" }}>{r.currentProfileUrl}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#33415C", marginBottom: 8 }}>
+                申請改成：<span style={{ wordBreak: "break-all" }}>{r.pendingProfileUrl}</span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn small" onClick={() => approveProfileRequest(r.memberId)}>核准</button>
+                <button className="btn small danger" onClick={() => rejectProfileRequest(r.memberId)}>拒絕</button>
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 13, marginTop: 6 }}>{profileRequestsMsg}</div>
         </div>
         </>
       )}

@@ -44,14 +44,19 @@ export async function POST(req: Request) {
     sentVerifyEmail = true;
   }
 
+  let profileUrlSubmittedForReview = false;
   if (newProfileUrlRaw) {
     const newProfileUrl = /^https?:\/\//i.test(newProfileUrlRaw) ? newProfileUrlRaw : "https://" + newProfileUrlRaw;
     const newProfileUrlNorm = normFb(newProfileUrl);
     if (newProfileUrlNorm !== member.profile_url_norm) {
       const { data: existing } = await supabase.from("members").select("id").eq("profile_url_norm", newProfileUrlNorm).neq("id", member.id).maybeSingle();
       if (existing) return NextResponse.json({ error: "這個個人頁網址已經被其他帳號使用" }, { status: 409 });
-      updates.profile_url = newProfileUrl;
-      updates.profile_url_norm = newProfileUrlNorm;
+      const { data: existingPending } = await supabase.from("members").select("id").eq("pending_profile_url_norm", newProfileUrlNorm).neq("id", member.id).maybeSingle();
+      if (existingPending) return NextResponse.json({ error: "這個個人頁網址已經有其他人送出審核中" }, { status: 409 });
+      // 個人頁網址修改需要最高管理者審核，先存到待審核欄位，不會直接生效
+      updates.pending_profile_url = newProfileUrl;
+      updates.pending_profile_url_norm = newProfileUrlNorm;
+      profileUrlSubmittedForReview = true;
     }
   }
 
@@ -77,8 +82,10 @@ export async function POST(req: Request) {
     ok: true,
     username: updated.username,
     profileUrl: updated.profile_url,
+    pendingProfileUrl: updated.pending_profile_url,
     email: updated.email,
     emailVerified: updated.email_verified,
     verifyEmailSent: sentVerifyEmail,
+    profileUrlSubmittedForReview,
   });
 }

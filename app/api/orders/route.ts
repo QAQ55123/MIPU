@@ -25,6 +25,9 @@ export async function POST(req: Request) {
 
   const { data: member } = await supabase.from("members").select("*").ilike("username", finalUsername).maybeSingle();
   if (!member) return NextResponse.json({ error: "找不到你的會員資料，請重新登入。" }, { status: 400 });
+  if (!member.email_verified) {
+    return NextResponse.json({ error: "請先驗證信箱後才能下單，可以到「編輯會員資料」重新寄送驗證信。" }, { status: 403 });
+  }
 
   // 企劃 / 截止時間 / 取付上限
   const { data: plan, error: planErr } = await supabase.from("plans").select("*").eq("id", planId).single();

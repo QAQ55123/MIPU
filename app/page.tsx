@@ -10,7 +10,7 @@ type Plan = {
 };
 type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
 type CartItem = { name: string; style: string; qty: number };
-type Identity = { username: string; profileUrl: string; email: string; emailVerified: boolean } | null;
+type Identity = { username: string; profileUrl: string; email: string; emailVerified: boolean; pendingProfileUrl?: string | null } | null;
 type PendingAction = null | "order" | "history" | "favorites";
 
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
@@ -176,7 +176,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "登入失敗");
-      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified };
+      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl };
       setIdentity(id);
       setLoginPassword("");
       afterAuthSuccess(id);
@@ -210,7 +210,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
-      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified };
+      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl };
       setIdentity(id);
       setRegisterVerifyEmailSent(d.verifyEmailSent !== false);
       setRegisterDone(true);
@@ -334,6 +334,10 @@ export default function Home() {
       requireIdentity("order");
       return;
     }
+    if (!identity.emailVerified) {
+      showToast("請先驗證信箱後才能下單");
+      return;
+    }
     const items: CartItem[] = Object.entries(cart).map(([key, qty]) => {
       const [name, style] = key.split("||");
       return { name, style, qty };
@@ -448,10 +452,13 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAccountProfileMsg(d.error || "更新失敗");
-      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified });
+      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl });
       setAccountNewEmail("");
       setAccountNewProfileUrl("");
-      setAccountProfileMsg(d.verifyEmailSent ? "已更新，驗證信已寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）。" : "已更新。");
+      const parts: string[] = [];
+      if (d.verifyEmailSent) parts.push("信箱已更新，驗證信已寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）");
+      if (d.profileUrlSubmittedForReview) parts.push("個人頁網址修改申請已送出，需等最高管理者審核通過才會生效");
+      setAccountProfileMsg(parts.length > 0 ? parts.join("；") + "。" : "已更新。");
     } catch {
       setAccountProfileMsg("網路連線失敗，請再試一次");
     } finally {
@@ -472,7 +479,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAccountProfileMsg(d.error || "失敗");
-      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified });
+      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl });
       setAccountProfileMsg(d.verifyEmailSent ? "驗證信已重新寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）。" : "這個信箱已經驗證過了。");
     } catch {
       setAccountProfileMsg("網路連線失敗，請再試一次");
@@ -704,8 +711,8 @@ export default function Home() {
       </header>
 
       {view === "identity" ? (
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
-          <div className="auth-card">
+        <div style={{ maxWidth: 460, margin: "48px auto", padding: "0 16px" }}>
+          <div className="auth-card" style={{ margin: 0, boxShadow: "0 4px 24px rgba(0,0,0,.04)" }}>
             {registerDone ? (
               <div style={{ textAlign: "center" }}>
                 <h2 className="section-title">註冊成功</h2>
@@ -944,9 +951,19 @@ export default function Home() {
                           <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
                         </div>
 
+                        {identity && !identity.emailVerified && (
+                          <div className="rules-box" style={{ marginTop: 16 }}>
+                            信箱尚未驗證，暫時無法下單。請先到「編輯會員資料」重新寄送驗證信並完成驗證。
+                          </div>
+                        )}
+
                         <div className="product-checkout-row">
                           <span className="product-checkout-total">合計 NT$ {fmt(cartTotal)}</span>
-                          <button className="btn" disabled={activePlan.closed || submittingOrder} onClick={submitOrder}>
+                          <button
+                            className="btn"
+                            disabled={activePlan.closed || submittingOrder || (identity ? !identity.emailVerified : false)}
+                            onClick={submitOrder}
+                          >
                             {submittingOrder ? "送出中…" : "加入購物車"}
                           </button>
                         </div>
@@ -1021,6 +1038,14 @@ export default function Home() {
                 <div className="auth-card" style={{ marginTop: 0 }}>
                   <div className="id-row"><span className="id-label">帳號</span><span>{identity.username}</span></div>
                   <div className="id-row"><span className="id-label">個人頁</span><span style={{ wordBreak: "break-all" }}>{identity.profileUrl}</span></div>
+                  {identity.pendingProfileUrl && (
+                    <div className="id-row">
+                      <span className="id-label">審核中</span>
+                      <span style={{ wordBreak: "break-all", color: "#B08E5A", fontSize: 13 }}>
+                        {identity.pendingProfileUrl}（等待最高管理者審核）
+                      </span>
+                    </div>
+                  )}
                   <div className="id-row">
                     <span className="id-label">Email</span>
                     <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1045,7 +1070,7 @@ export default function Home() {
                   </div>
                   <div className="id-row">
                     <span className="id-label">新個人頁</span>
-                    <input type="text" value={accountNewProfileUrl} onChange={(e) => setAccountNewProfileUrl(e.target.value)} placeholder="留空表示不更改" />
+                    <input type="text" value={accountNewProfileUrl} onChange={(e) => setAccountNewProfileUrl(e.target.value)} placeholder="留空表示不更改，送出後需等管理者審核才會生效" />
                   </div>
                   <div className="id-row">
                     <span className="id-label">目前密碼</span>
