@@ -79,6 +79,7 @@ export default function Home() {
     const verify = params.get("verify");
     if (verify === "success") setVerifyBannerMsg("信箱驗證成功！");
     else if (verify === "invalid") setVerifyBannerMsg("驗證連結無效或已過期。");
+    if (verify) window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
   function showToast(msg: string) {

@@ -76,6 +76,7 @@ export default function AdminPage() {
     const verify = params.get("verify");
     if (verify === "success") setVerifyMsg("信箱驗證成功！");
     else if (verify === "invalid") setVerifyMsg("驗證連結無效或已過期。");
+    if (verify) window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
   useEffect(() => {
