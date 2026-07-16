@@ -48,7 +48,7 @@ html, body {
 
 .section-title { font-size: 18px; margin: 16px 0 8px; }
 
-.auth-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 16px; max-width: 560px; display: flex; flex-direction: column; gap: 12px; }
+.auth-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 16px auto 0; max-width: 560px; display: flex; flex-direction: column; gap: 12px; }
 .id-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .id-label { font-size: 15px; color: var(--muted); min-width: 64px; }
 .id-row input[type="text"], .id-row input[type="password"] { flex: 1; min-width: 200px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }

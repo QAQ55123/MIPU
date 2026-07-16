@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Category = { id: string; name: string; parent_id: string | null; created_at?: string };
+type Category = { id: string; name: string; parent_id: string | null; created_at?: string; sort_order?: number };
 type PlanAdmin = {
   id: string; name: string; deadline: string | null; imageUrl: string | null;
   codLimit: number; visibleTo: string[]; categoryId: string | null; categoryName: string | null;
-  promoImages?: string[];
+  promoImages?: string[]; sortOrder?: number;
 };
 type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null };
 
@@ -48,6 +48,8 @@ export default function AdminPage() {
   const [products, setProducts] = useState<ProductAdmin[]>([]);
   const [productForm, setProductForm] = useState(emptyProductForm);
   const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
+  const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [productMsg, setProductMsg] = useState("");
   const [uploadingProductImg, setUploadingProductImg] = useState(false);
 
@@ -199,7 +201,7 @@ export default function AdminPage() {
   async function loadCategories() {
     const r = await fetch("/api/categories", { cache: "no-store" });
     const d = await r.json();
-    setCategories((d.categories || []).map((c: any) => ({ id: c.id, name: c.name, parent_id: c.parentId, created_at: c.createdAt })));
+    setCategories((d.categories || []).map((c: any) => ({ id: c.id, name: c.name, parent_id: c.parentId, created_at: c.createdAt, sort_order: c.sortOrder })));
   }
 
   function editCategory(c: Category) {
@@ -233,12 +235,35 @@ export default function AdminPage() {
     }
   }
 
-  function byCreatedAtAsc(a: Category, b: Category) {
+  function byOrder(a: Category, b: Category) {
+    const so = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    if (so !== 0) return so;
     return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
   }
-  const topCategories = categories.filter((c) => !c.parent_id).sort(byCreatedAtAsc);
+  const topCategories = categories.filter((c) => !c.parent_id).sort(byOrder);
   function childrenOf(id: string) {
-    return categories.filter((c) => c.parent_id === id).sort(byCreatedAtAsc);
+    return categories.filter((c) => c.parent_id === id).sort(byOrder);
+  }
+
+  function handleCategoryDrop(targetId: string) {
+    if (!draggedCategoryId || draggedCategoryId === targetId) return;
+    setCategories((prev) => {
+      const dragged = prev.find((c) => c.id === draggedCategoryId);
+      const target = prev.find((c) => c.id === targetId);
+      if (!dragged || !target) return prev;
+      if ((dragged.parent_id || null) !== (target.parent_id || null)) return prev; // 不同層不能互換順序
+      const next = [...prev];
+      const fromIdx = next.findIndex((c) => c.id === draggedCategoryId);
+      const toIdx = next.findIndex((c) => c.id === targetId);
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      const siblingIds = next.filter((c) => (c.parent_id || null) === (dragged.parent_id || null)).map((c) => c.id);
+      callJson("/api/admin/categories/reorder", "POST", { ids: siblingIds }).catch((e: any) => {
+        setCategoryMsg("排序儲存失敗：" + e.message);
+      });
+      return next;
+    });
+    setDraggedCategoryId(null);
   }
 
   // ================= 企劃 =================
@@ -247,6 +272,32 @@ export default function AdminPage() {
     if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
     const d = await r.json();
     setPlans(d.plans || []);
+  }
+
+  function getPlanStatus(p: PlanAdmin): "permanent" | "ongoing" | "closed" {
+    if (!p.deadline) return "permanent";
+    return new Date(p.deadline).getTime() < Date.now() ? "closed" : "ongoing";
+  }
+
+  function handlePlanDrop(targetId: string) {
+    if (!draggedPlanId || draggedPlanId === targetId) return;
+    setPlans((prev) => {
+      const dragged = prev.find((p) => p.id === draggedPlanId);
+      const target = prev.find((p) => p.id === targetId);
+      if (!dragged || !target) return prev;
+      if (getPlanStatus(dragged) !== getPlanStatus(target)) return prev; // 不同狀態分組不能互換順序
+      const next = [...prev];
+      const fromIdx = next.findIndex((p) => p.id === draggedPlanId);
+      const toIdx = next.findIndex((p) => p.id === targetId);
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      const groupIds = next.filter((p) => getPlanStatus(p) === getPlanStatus(dragged)).map((p) => p.id);
+      callJson("/api/admin/plans/reorder", "POST", { ids: groupIds }).catch((e: any) => {
+        setPlanMsg("排序儲存失敗：" + e.message);
+      });
+      return next;
+    });
+    setDraggedPlanId(null);
   }
 
   function editPlan(p: PlanAdmin) {
@@ -589,29 +640,6 @@ export default function AdminPage() {
           {activeSection === "categories" && (
       <div className="auth-card">
         <h3>分類管理</h3>
-        <div style={{ marginBottom: 12, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
-          {topCategories.map((c) => (
-            <div key={c.id} style={{ marginBottom: 6 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, fontWeight: 600 }}>
-                <span>{c.name}</span>
-                <span>
-                  <button className="btn small secondary" onClick={() => editCategory(c)} style={{ marginRight: 6 }}>編輯</button>
-                  <button className="btn small danger" onClick={() => deleteCategory(c.id)}>刪除</button>
-                </span>
-              </div>
-              {childrenOf(c.id).map((sub) => (
-                <div key={sub.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "#6B6858", paddingLeft: 16, marginTop: 4 }}>
-                  <span>└ {sub.name}</span>
-                  <span>
-                    <button className="btn small secondary" onClick={() => editCategory(sub)} style={{ marginRight: 6 }}>編輯</button>
-                    <button className="btn small danger" onClick={() => deleteCategory(sub.id)}>刪除</button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          ))}
-          {topCategories.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有分類</div>}
-        </div>
 
         <div className="id-row">
           <span className="id-label">名稱</span>
@@ -631,6 +659,47 @@ export default function AdminPage() {
           {categoryForm.id && <button className="btn secondary" onClick={() => setCategoryForm(emptyCategoryForm)}>取消編輯</button>}
         </div>
         <div style={{ fontSize: 13, marginTop: 6 }}>{categoryMsg}</div>
+
+        <div style={{ marginTop: 12, maxHeight: 320, overflowY: "auto", paddingRight: 4, borderTop: "1px solid #EDE9DC", paddingTop: 12 }}>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: "0 0 8px" }}>可以拖曳調整排列順序（子分類只能在同一個上層分類底下互相拖曳）</p>
+          {topCategories.map((c) => (
+            <div
+              key={c.id}
+              style={{ marginBottom: 6, opacity: draggedCategoryId === c.id ? 0.4 : 1 }}
+            >
+              <div
+                draggable
+                onDragStart={() => setDraggedCategoryId(c.id)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleCategoryDrop(c.id)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, fontWeight: 600, cursor: "grab" }}
+              >
+                <span><span style={{ color: "#B0AC9C", marginRight: 6 }} title="拖曳排序">⠿</span>{c.name}</span>
+                <span>
+                  <button className="btn small secondary" onClick={() => editCategory(c)} style={{ marginRight: 6 }}>編輯</button>
+                  <button className="btn small danger" onClick={() => deleteCategory(c.id)}>刪除</button>
+                </span>
+              </div>
+              {childrenOf(c.id).map((sub) => (
+                <div
+                  key={sub.id}
+                  draggable
+                  onDragStart={() => setDraggedCategoryId(sub.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleCategoryDrop(sub.id)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "#6B6858", paddingLeft: 16, marginTop: 4, cursor: "grab", opacity: draggedCategoryId === sub.id ? 0.4 : 1 }}
+                >
+                  <span><span style={{ color: "#B0AC9C", marginRight: 6 }} title="拖曳排序">⠿</span>└ {sub.name}</span>
+                  <span>
+                    <button className="btn small secondary" onClick={() => editCategory(sub)} style={{ marginRight: 6 }}>編輯</button>
+                    <button className="btn small danger" onClick={() => deleteCategory(sub.id)}>刪除</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+          {topCategories.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有分類</div>}
+        </div>
       </div>
           )}
 
@@ -638,22 +707,6 @@ export default function AdminPage() {
             <>
       <div className="auth-card">
         <h3>企劃管理</h3>
-        <div style={{ marginBottom: 12, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
-          {plans.map((p) => (
-            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
-              <div>
-                <div style={{ fontSize: 14 }}>{p.name}</div>
-                <div style={{ fontSize: 12, color: "#8A8779" }}>{p.categoryName || "未分類"}{p.deadline ? `　截止 ${new Date(p.deadline).toLocaleString("zh-TW")}` : ""}</div>
-              </div>
-              <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                <button className="btn small secondary" onClick={() => openProductManager(p)}>管理商品</button>
-                <button className="btn small secondary" onClick={() => editPlan(p)}>編輯</button>
-                <button className="btn small danger" onClick={() => deletePlan(p.id)}>刪除</button>
-              </span>
-            </div>
-          ))}
-          {plans.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有企劃</div>}
-        </div>
 
         <div className="id-row">
           <span className="id-label">名稱</span>
@@ -676,6 +729,7 @@ export default function AdminPage() {
         <div className="id-row">
           <span className="id-label">截止時間</span>
           <input type="datetime-local" value={planForm.deadline} onChange={(e) => setPlanForm((f) => ({ ...f, deadline: e.target.value }))} style={{ flex: 1, padding: 8 }} />
+          <span style={{ fontSize: 12, color: "#8A8779" }}>留空＝常駐（沒有截止日）</span>
         </div>
         <div className="id-row">
           <span className="id-label">取付上限</span>
@@ -717,6 +771,39 @@ export default function AdminPage() {
           {planForm.id && <button className="btn secondary" onClick={() => setPlanForm(emptyPlanForm)}>取消編輯</button>}
         </div>
         <div style={{ fontSize: 13, marginTop: 6 }}>{planMsg}</div>
+
+        {(["ongoing", "permanent", "closed"] as const).map((status) => {
+          const group = plans.filter((p) => getPlanStatus(p) === status);
+          const label = status === "ongoing" ? "進行中" : status === "permanent" ? "常駐" : "已截止";
+          return (
+            <div key={status} style={{ marginTop: 16, borderTop: "1px solid #EDE9DC", paddingTop: 12 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#33415C", margin: "0 0 8px" }}>{label}（{group.length}）</p>
+              <div style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
+                {group.map((p) => (
+                  <div
+                    key={p.id}
+                    draggable
+                    onDragStart={() => setDraggedPlanId(p.id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handlePlanDrop(p.id)}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px dashed #EDE9DC", cursor: "grab", opacity: draggedPlanId === p.id ? 0.4 : 1 }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 14 }}><span style={{ color: "#B0AC9C", marginRight: 6 }} title="拖曳排序">⠿</span>{p.name}</div>
+                      <div style={{ fontSize: 12, color: "#8A8779" }}>{p.categoryName || "未分類"}{p.deadline ? `　截止 ${new Date(p.deadline).toLocaleString("zh-TW")}` : ""}</div>
+                    </div>
+                    <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button className="btn small secondary" onClick={() => openProductManager(p)}>管理商品</button>
+                      <button className="btn small secondary" onClick={() => editPlan(p)}>編輯</button>
+                      <button className="btn small danger" onClick={() => deletePlan(p.id)}>刪除</button>
+                    </span>
+                  </div>
+                ))}
+                {group.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>沒有企劃</div>}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {activePlanForProducts && (

@@ -13,9 +13,14 @@ export async function POST(req: Request) {
   if (!name) return NextResponse.json({ error: "請填寫分類名稱" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
+  let siblingQuery = supabase.from("categories").select("sort_order").order("sort_order", { ascending: false }).limit(1);
+  siblingQuery = body.parentId ? siblingQuery.eq("parent_id", body.parentId) : siblingQuery.is("parent_id", null);
+  const { data: existing } = await siblingQuery;
+  const nextSortOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
+
   const { data, error } = await supabase
     .from("categories")
-    .insert({ name, parent_id: body.parentId || null })
+    .insert({ name, parent_id: body.parentId || null, sort_order: nextSortOrder })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

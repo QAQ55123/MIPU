@@ -20,6 +20,7 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from("plans")
     .select("*, categories(id, name, parent_id)")
+    .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -34,6 +35,7 @@ export async function GET(req: Request) {
       categoryId: p.category_id,
       categoryName: p.categories?.name || null,
       promoImages: p.promo_images || [],
+      sortOrder: p.sort_order,
     })),
   });
 }
@@ -49,6 +51,13 @@ export async function POST(req: Request) {
   if (!name) return NextResponse.json({ error: "請填寫企劃名稱" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
+  const { data: existing } = await supabase
+    .from("plans")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1);
+  const nextSortOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
+
   const { data, error } = await supabase
     .from("plans")
     .insert({
@@ -59,6 +68,7 @@ export async function POST(req: Request) {
       visible_to: body.visibleTo || [],
       category_id: body.categoryId || null,
       promo_images: body.promoImages || [],
+      sort_order: nextSortOrder,
     })
     .select()
     .single();

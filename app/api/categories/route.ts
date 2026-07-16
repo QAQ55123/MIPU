@@ -21,6 +21,7 @@ export async function GET() {
         name: c.name,
         parentId: c.parent_id,
         createdAt: c.created_at,
+        sortOrder: c.sort_order,
       })),
     },
     { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } }
