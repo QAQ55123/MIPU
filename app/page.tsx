@@ -10,13 +10,22 @@ type Plan = {
 };
 type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
 type CartItem = { name: string; style: string; qty: number };
+type GlobalCartEntry = {
+  planId: string;
+  planName: string;
+  planDeadline: string | null;
+  productName: string;
+  style: string;
+  qty: number;
+  price: number;
+};
 type Identity = { username: string; profileUrl: string; email: string; emailVerified: boolean; pendingProfileUrl?: string | null } | null;
 type PendingAction = null | "order" | "history" | "favorites";
 
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
 
 export default function Home() {
-  const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account" | "favorites">("plans");
+  const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account" | "favorites" | "cart">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
   const identityRef = useRef<Identity>(null);
   useEffect(() => { identityRef.current = identity; }, [identity]);
@@ -66,6 +75,9 @@ export default function Home() {
     if (v === "plan") {
       const id = params.get("id");
       if (id) openPlan({ id } as Plan);
+    } else if (v === "cart") {
+      setView("cart");
+      refreshCartPlanStatuses();
     } else if (v === "history" && identityRef.current) {
       openHistoryNow();
     } else if (v === "favorites" && identityRef.current) {
@@ -95,10 +107,28 @@ export default function Home() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [cart, setCart] = useState<Record<string, number>>({}); // key: name||style
+  const [cart, setCart] = useState<Record<string, number>>({}); // key: name||style（目前正在瀏覽的企劃、還沒加入購物車前的暫存）
+
+  const [globalCart, setGlobalCart] = useState<GlobalCartEntry[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem("mibu_cart");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("mibu_cart", JSON.stringify(globalCart));
+    } catch {}
+  }, [globalCart]);
+
+  const [cartPlanStatus, setCartPlanStatus] = useState<Record<string, { name: string; deadline: string | null; closed: boolean; codLimit: number; found: boolean }>>({});
+  const [cartPaymentByPlan, setCartPaymentByPlan] = useState<Record<string, string>>({});
+  const [checkoutingPlanId, setCheckoutingPlanId] = useState<string | null>(null);
   const [selectedProductName, setSelectedProductName] = useState<string | null>(null);
   const [selectedStyleByProduct, setSelectedStyleByProduct] = useState<Record<string, string>>({});
-  const [payment, setPayment] = useState("匯款");
   const [history, setHistory] = useState<any[]>([]);
 
   useEffect(() => {
@@ -400,9 +430,80 @@ export default function Home() {
     return sum + (p ? p.price * qty : 0);
   }, 0);
   const cartCount = Object.values(cart).reduce((s, n) => s + n, 0);
+  const globalCartCount = globalCart.reduce((s, e) => s + e.qty, 0);
+  const globalCartTotal = globalCart.reduce((s, e) => s + e.qty * e.price, 0);
 
-  async function submitOrder() {
-    if (submittingOrder) return; // 防呆：正在送出中，忽略後續點擊
+  function addToCart() {
+    if (submittingOrder) return;
+    if (!activePlan) return;
+    const items: CartItem[] = Object.entries(cart).map(([key, qty]) => {
+      const [name, style] = key.split("||");
+      return { name, style, qty };
+    });
+    if (items.length === 0) return showToast("請至少選擇一項商品");
+
+    setGlobalCart((prev) => {
+      const next = [...prev];
+      for (const it of items) {
+        const p = products.find((pp) => pp.name === it.name && pp.style === it.style);
+        const idx = next.findIndex((e) => e.planId === activePlan.id && e.productName === it.name && e.style === it.style);
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], qty: it.qty, price: p?.price ?? next[idx].price };
+        } else {
+          next.push({
+            planId: activePlan.id,
+            planName: activePlan.name,
+            planDeadline: activePlan.deadline || null,
+            productName: it.name,
+            style: it.style,
+            qty: it.qty,
+            price: p?.price ?? 0,
+          });
+        }
+      }
+      return next;
+    });
+    setCart({});
+    showToast("已加入購物車");
+  }
+
+  async function refreshCartPlanStatuses() {
+    const planIds = Array.from(new Set(globalCart.map((e) => e.planId)));
+    const results = await Promise.all(
+      planIds.map(async (id) => {
+        try {
+          const r = await fetch(`/api/plans/${id}`, { cache: "no-store" });
+          if (!r.ok) return [id, null] as const;
+          const d = await r.json();
+          return [id, d.plan] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      })
+    );
+    setCartPlanStatus((prev) => {
+      const next = { ...prev };
+      for (const [id, plan] of results) {
+        if (plan) {
+          next[id] = { name: plan.name, deadline: plan.deadline, closed: plan.closed, codLimit: plan.codLimit || 0, found: true };
+        } else {
+          next[id] = { name: "", deadline: null, closed: true, codLimit: 0, found: false };
+        }
+      }
+      return next;
+    });
+  }
+
+  function removeCartItem(planId: string, productName: string, style: string) {
+    setGlobalCart((prev) => prev.filter((e) => !(e.planId === planId && e.productName === productName && e.style === style)));
+  }
+
+  function removeCartGroup(planId: string) {
+    setGlobalCart((prev) => prev.filter((e) => e.planId !== planId));
+  }
+
+  async function checkoutCartGroup(planId: string) {
+    if (checkoutingPlanId) return;
     if (!identity) {
       requireIdentity("order");
       return;
@@ -411,34 +512,37 @@ export default function Home() {
       showToast("請先驗證信箱後才能下單");
       return;
     }
-    const items: CartItem[] = Object.entries(cart).map(([key, qty]) => {
-      const [name, style] = key.split("||");
-      return { name, style, qty };
-    });
-    if (items.length === 0) return showToast("請至少選擇一項商品");
-    if (!activePlan) return;
+    const groupItems = globalCart.filter((e) => e.planId === planId);
+    if (groupItems.length === 0) return;
+    const payment = cartPaymentByPlan[planId] || "匯款";
 
-    setSubmittingOrder(true);
+    setCheckoutingPlanId(planId);
     try {
       const r = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          planId: activePlan.id,
-          items,
-          username: identity?.username,
+          planId,
+          items: groupItems.map((e) => ({ name: e.productName, style: e.style, qty: e.qty })),
+          username: identity.username,
           payment,
         }),
       });
       const d = await r.json();
-      if (!r.ok) return showToast(d.error || "新增訂單失敗");
+      if (!r.ok) return showToast(d.error || "送出失敗");
       showToast(`訂單已送出（編號 ${d.orderNo}）`);
-      setCart({});
+      removeCartGroup(planId);
     } catch {
       showToast("網路連線失敗，請再試一次");
     } finally {
-      setSubmittingOrder(false);
+      setCheckoutingPlanId(null);
     }
+  }
+
+  function openCart() {
+    syncUrl({ view: "cart" });
+    setView("cart");
+    refreshCartPlanStatuses();
   }
 
   async function openHistory() {
@@ -742,28 +846,29 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="mibu-hover-wrap">
-                  <div className="mibu-cart-wrap">
+                  <button className="mibu-cart-wrap" onClick={openCart} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="購物車">
                     <ShoppingCart size={19} color="var(--muted)" />
-                    {cartCount > 0 && <span className="mibu-cart-badge">{cartCount}</span>}
-                  </div>
+                    {globalCartCount > 0 && <span className="mibu-cart-badge">{globalCartCount}</span>}
+                  </button>
                   <div className="mibu-hover-panel">
-                    <div className="mibu-hover-panel-title">目前選購</div>
-                    {cartCount === 0 ? (
+                    <div className="mibu-hover-panel-title">購物車</div>
+                    {globalCart.length === 0 ? (
                       <div className="mibu-hover-panel-empty">購物車是空的</div>
                     ) : (
                       <>
-                        {Object.entries(cart).map(([key, qty]) => {
-                          const [name, style] = key.split("||");
-                          const p = products.find((pp) => pp.name === name && pp.style === style);
-                          return (
-                            <div className="mibu-hover-panel-row" key={key}>
-                              <span>{name}{style ? `（${style}）` : ""} x{qty}</span>
-                              <span>NT$ {fmt((p?.price || 0) * qty)}</span>
-                            </div>
-                          );
-                        })}
+                        {Object.entries(
+                          globalCart.reduce<Record<string, number>>((acc, e) => {
+                            acc[e.planName] = (acc[e.planName] || 0) + e.qty * e.price;
+                            return acc;
+                          }, {})
+                        ).map(([planName, subtotal]) => (
+                          <div className="mibu-hover-panel-row" key={planName}>
+                            <span>{planName}</span>
+                            <span>NT$ {fmt(subtotal)}</span>
+                          </div>
+                        ))}
                         <div className="mibu-hover-panel-row" style={{ borderTop: "1px dashed var(--line)", marginTop: 6, paddingTop: 6, fontWeight: 600, color: "var(--text)" }}>
-                          <span>合計</span><span>NT$ {fmt(cartTotal)}</span>
+                          <span>合計</span><span>NT$ {fmt(globalCartTotal)}</span>
                         </div>
                       </>
                     )}
@@ -887,7 +992,7 @@ export default function Home() {
           </div>
 
           <main className="main" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
-            {!isAccountArea && renderBreadcrumb()}
+            {!isAccountArea && view !== "cart" && renderBreadcrumb()}
 
             {view === "plans" && (
               <div>
@@ -1036,20 +1141,14 @@ export default function Home() {
                           <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
                         </div>
 
-                        {identity && !identity.emailVerified && (
-                          <div className="rules-box" style={{ marginTop: 16 }}>
-                            信箱尚未驗證，暫時無法下單。請先到「編輯會員資料」重新寄送驗證信並完成驗證。
-                          </div>
-                        )}
-
                         <div className="product-checkout-row">
                           <span className="product-checkout-total">合計 NT$ {fmt(cartTotal)}</span>
                           <button
                             className="btn"
-                            disabled={activePlan.closed || submittingOrder || (identity ? !identity.emailVerified : false)}
-                            onClick={submitOrder}
+                            disabled={activePlan.closed || cartCount === 0}
+                            onClick={addToCart}
                           >
-                            {submittingOrder ? "送出中…" : "加入購物車"}
+                            加入購物車
                           </button>
                         </div>
                       </div>
@@ -1114,6 +1213,87 @@ export default function Home() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {view === "cart" && (
+              <div>
+                <h2 className="section-title">購物車</h2>
+                {globalCart.length === 0 && <div className="spinner">購物車是空的</div>}
+
+                {Object.entries(
+                  globalCart.reduce<Record<string, GlobalCartEntry[]>>((acc, e) => {
+                    acc[e.planId] = acc[e.planId] || [];
+                    acc[e.planId].push(e);
+                    return acc;
+                  }, {})
+                ).map(([planId, entries]) => {
+                  const live = cartPlanStatus[planId];
+                  const planName = live?.name || entries[0].planName;
+                  const deadline = live ? live.deadline : entries[0].planDeadline;
+                  const isInactive = live ? (!live.found || live.closed) : false;
+                  const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
+                  const payment = cartPaymentByPlan[planId] || "匯款";
+
+                  return (
+                    <div key={planId} className="cart-group" style={{ opacity: isInactive ? 0.6 : 1 }}>
+                      <div className="cart-group-header">
+                        <div>
+                          <span
+                            className="cart-group-plan-name"
+                            onClick={() => { if (live?.found !== false) openPlan({ id: planId } as Plan); }}
+                          >
+                            {planName || "（找不到這個企劃）"}
+                          </span>
+                          {deadline && (
+                            <span className="cart-group-deadline">
+                              {isInactive ? "已於 " : "截止 "}
+                              {new Date(deadline).toLocaleString("zh-TW")}
+                            </span>
+                          )}
+                        </div>
+                        {isInactive && <span className="plan-card-v2-status closed-tag" style={{ position: "static" }}>已失效</span>}
+                      </div>
+
+                      {entries.map((e) => (
+                        <div className="cart-item-row" key={`${e.productName}||${e.style}`}>
+                          <span>{e.productName}{e.style ? `（${e.style}）` : ""} x{e.qty}</span>
+                          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span>NT$ {fmt(e.qty * e.price)}</span>
+                            <span
+                              onClick={() => removeCartItem(planId, e.productName, e.style)}
+                              style={{ cursor: "pointer", color: "var(--muted)" }}
+                              title="移除"
+                            >
+                              ×
+                            </span>
+                          </span>
+                        </div>
+                      ))}
+
+                      <div className="cart-group-footer">
+                        <span style={{ fontWeight: 600 }}>小計 NT$ {fmt(groupTotal)}</span>
+                        {!isInactive ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div className="source-btns">
+                              {["匯款", ...(live && live.codLimit > 0 ? ["取付"] : [])].map((p) => (
+                                <button key={p} className={`src-btn ${payment === p ? "active" : ""}`} onClick={() => setCartPaymentByPlan((prev) => ({ ...prev, [planId]: p }))}>{p}</button>
+                              ))}
+                            </div>
+                            <button className="btn small" disabled={checkoutingPlanId === planId} onClick={() => checkoutCartGroup(planId)}>
+                              {checkoutingPlanId === planId ? "送出中…" : "送出訂單"}
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                            此企劃暫時無法下單，若重新開放會自動恢復
+                          </span>
+                        )}
+                        <button className="btn small secondary" onClick={() => removeCartGroup(planId)}>清除這組</button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
