@@ -18,6 +18,7 @@ type GlobalCartEntry = {
   style: string;
   qty: number;
   price: number;
+  imageUrl?: string;
 };
 type Identity = { username: string; profileUrl: string; email: string; emailVerified: boolean; pendingProfileUrl?: string | null } | null;
 type PendingAction = null | "order" | "history" | "favorites";
@@ -25,7 +26,7 @@ type PendingAction = null | "order" | "history" | "favorites";
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
 
 export default function Home() {
-  const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account" | "favorites" | "cart">("plans");
+  const [view, setView] = useState<"identity" | "plans" | "order" | "history" | "account" | "favorites" | "cart" | "checkout">("plans");
   const [identity, setIdentity] = useState<Identity>(null);
   const identityRef = useRef<Identity>(null);
   useEffect(() => { identityRef.current = identity; }, [identity]);
@@ -127,6 +128,9 @@ export default function Home() {
   const [cartPlanStatus, setCartPlanStatus] = useState<Record<string, { name: string; deadline: string | null; closed: boolean; codLimit: number; found: boolean }>>({});
   const [cartPaymentByPlan, setCartPaymentByPlan] = useState<Record<string, string>>({});
   const [checkoutingPlanId, setCheckoutingPlanId] = useState<string | null>(null);
+  const [selectedCartKeys, setSelectedCartKeys] = useState<Set<string>>(new Set());
+  const [checkoutPaymentByPlan, setCheckoutPaymentByPlan] = useState<Record<string, string>>({});
+  const [submittingCheckout, setSubmittingCheckout] = useState(false);
   const [selectedProductName, setSelectedProductName] = useState<string | null>(null);
   const [selectedStyleByProduct, setSelectedStyleByProduct] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<any[]>([]);
@@ -424,6 +428,17 @@ export default function Home() {
     });
   }
 
+  function setQtyExact(name: string, style: string, raw: string) {
+    const key = `${name}||${style}`;
+    const val = Math.max(0, Math.floor(Number(raw)) || 0);
+    setCart((prev) => {
+      const next = { ...prev };
+      if (val === 0) delete next[key];
+      else next[key] = val;
+      return next;
+    });
+  }
+
   const cartTotal = Object.entries(cart).reduce((sum, [key, qty]) => {
     const [name, style] = key.split("||");
     const p = products.find((pp) => pp.name === name && pp.style === style);
@@ -448,7 +463,7 @@ export default function Home() {
         const p = products.find((pp) => pp.name === it.name && pp.style === it.style);
         const idx = next.findIndex((e) => e.planId === activePlan.id && e.productName === it.name && e.style === it.style);
         if (idx >= 0) {
-          next[idx] = { ...next[idx], qty: it.qty, price: p?.price ?? next[idx].price };
+          next[idx] = { ...next[idx], qty: next[idx].qty + it.qty, price: p?.price ?? next[idx].price, imageUrl: p?.imageUrl ?? next[idx].imageUrl };
         } else {
           next.push({
             planId: activePlan.id,
@@ -458,6 +473,7 @@ export default function Home() {
             style: it.style,
             qty: it.qty,
             price: p?.price ?? 0,
+            imageUrl: p?.imageUrl,
           });
         }
       }
@@ -502,8 +518,45 @@ export default function Home() {
     setGlobalCart((prev) => prev.filter((e) => e.planId !== planId));
   }
 
-  async function checkoutCartGroup(planId: string) {
-    if (checkoutingPlanId) return;
+  function cartItemKey(planId: string, productName: string, style: string) {
+    return `${planId}||${productName}||${style}`;
+  }
+
+  function isGroupActive(planId: string) {
+    const live = cartPlanStatus[planId];
+    return live ? live.found && !live.closed : true; // 還沒問過的話先當作可選，畫面上也不會顯示成失效
+  }
+
+  function toggleCartItemSelect(key: string) {
+    setSelectedCartKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSelectAllCart() {
+    const selectableKeys = globalCart.filter((e) => isGroupActive(e.planId)).map((e) => cartItemKey(e.planId, e.productName, e.style));
+    const allSelected = selectableKeys.length > 0 && selectableKeys.every((k) => selectedCartKeys.has(k));
+    setSelectedCartKeys(allSelected ? new Set() : new Set(selectableKeys));
+  }
+
+  function deleteSelectedCartItems() {
+    if (selectedCartKeys.size === 0) return showToast("請先勾選要刪除的商品");
+    setGlobalCart((prev) => prev.filter((e) => !selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style))));
+    setSelectedCartKeys(new Set());
+  }
+
+  function goToCheckout() {
+    const selectedActive = globalCart.filter((e) => selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style)) && isGroupActive(e.planId));
+    if (selectedActive.length === 0) return showToast("請先勾選要結帳的商品（已失效的企劃無法結帳）");
+    syncUrl({ view: "checkout" });
+    setView("checkout");
+  }
+
+  async function submitCheckout() {
+    if (submittingCheckout) return;
     if (!identity) {
       requireIdentity("order");
       return;
@@ -512,31 +565,58 @@ export default function Home() {
       showToast("請先驗證信箱後才能下單");
       return;
     }
-    const groupItems = globalCart.filter((e) => e.planId === planId);
-    if (groupItems.length === 0) return;
-    const payment = cartPaymentByPlan[planId] || "匯款";
+    const selectedEntries = globalCart.filter((e) => selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style)) && isGroupActive(e.planId));
+    const planIds = Array.from(new Set(selectedEntries.map((e) => e.planId)));
+    if (planIds.length === 0) return;
 
-    setCheckoutingPlanId(planId);
-    try {
-      const r = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          planId,
-          items: groupItems.map((e) => ({ name: e.productName, style: e.style, qty: e.qty })),
-          username: identity.username,
-          payment,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) return showToast(d.error || "送出失敗");
-      showToast(`訂單已送出（編號 ${d.orderNo}）`);
-      removeCartGroup(planId);
-    } catch {
-      showToast("網路連線失敗，請再試一次");
-    } finally {
-      setCheckoutingPlanId(null);
+    setSubmittingCheckout(true);
+    const succeededPlanIds: string[] = [];
+    const errors: string[] = [];
+    for (const planId of planIds) {
+      const groupItems = selectedEntries.filter((e) => e.planId === planId);
+      const payment = checkoutPaymentByPlan[planId] || "匯款";
+      try {
+        const r = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planId,
+            items: groupItems.map((e) => ({ name: e.productName, style: e.style, qty: e.qty })),
+            username: identity.username,
+            payment,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          errors.push(`${groupItems[0].planName}：${d.error || "送出失敗"}`);
+        } else {
+          succeededPlanIds.push(planId);
+        }
+      } catch {
+        errors.push(`${groupItems[0].planName}：網路連線失敗`);
+      }
     }
+
+    if (succeededPlanIds.length > 0) {
+      setGlobalCart((prev) => prev.filter((e) => !succeededPlanIds.includes(e.planId)));
+      setSelectedCartKeys((prev) => {
+        const next = new Set(prev);
+        for (const e of selectedEntries) {
+          if (succeededPlanIds.includes(e.planId)) next.delete(cartItemKey(e.planId, e.productName, e.style));
+        }
+        return next;
+      });
+    }
+
+    if (errors.length === 0) {
+      showToast(`已成功送出 ${succeededPlanIds.length} 筆訂單`);
+      openCart();
+    } else if (succeededPlanIds.length > 0) {
+      showToast(`部分成功：${succeededPlanIds.length} 筆送出、${errors.length} 筆失敗`);
+    } else {
+      showToast(errors.join("；"));
+    }
+    setSubmittingCheckout(false);
   }
 
   function openCart() {
@@ -1137,7 +1217,14 @@ export default function Home() {
                         <div className="product-info-v3-label">數量</div>
                         <div className="stepper stepper-lg">
                           <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(current.name, current.style, -1)}>－</button>
-                          <input className="qty" readOnly value={qty} />
+                          <input
+                            className="qty"
+                            type="number"
+                            min={0}
+                            value={qty}
+                            disabled={activePlan.closed}
+                            onChange={(e) => setQtyExact(current.name, current.style, e.target.value)}
+                          />
                           <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
                         </div>
 
@@ -1221,6 +1308,19 @@ export default function Home() {
                 <h2 className="section-title">購物車</h2>
                 {globalCart.length === 0 && <div className="spinner">購物車是空的</div>}
 
+                {globalCart.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                      <input type="checkbox" onChange={toggleSelectAllCart} checked={
+                        globalCart.filter((e) => isGroupActive(e.planId)).length > 0 &&
+                        globalCart.filter((e) => isGroupActive(e.planId)).every((e) => selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style)))
+                      } />
+                      全選（{selectedCartKeys.size} 項已選）
+                    </label>
+                    <button className="btn small secondary" onClick={deleteSelectedCartItems}>刪除已選</button>
+                  </div>
+                )}
+
                 {Object.entries(
                   globalCart.reduce<Record<string, GlobalCartEntry[]>>((acc, e) => {
                     acc[e.planId] = acc[e.planId] || [];
@@ -1233,7 +1333,6 @@ export default function Home() {
                   const deadline = live ? live.deadline : entries[0].planDeadline;
                   const isInactive = live ? (!live.found || live.closed) : false;
                   const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
-                  const payment = cartPaymentByPlan[planId] || "匯款";
 
                   return (
                     <div key={planId} className="cart-group" style={{ opacity: isInactive ? 0.6 : 1 }}>
@@ -1255,36 +1354,32 @@ export default function Home() {
                         {isInactive && <span className="plan-card-v2-status closed-tag" style={{ position: "static" }}>已失效</span>}
                       </div>
 
-                      {entries.map((e) => (
-                        <div className="cart-item-row" key={`${e.productName}||${e.style}`}>
-                          <span>{e.productName}{e.style ? `（${e.style}）` : ""} x{e.qty}</span>
-                          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span>NT$ {fmt(e.qty * e.price)}</span>
-                            <span
-                              onClick={() => removeCartItem(planId, e.productName, e.style)}
-                              style={{ cursor: "pointer", color: "var(--muted)" }}
-                              title="移除"
-                            >
-                              ×
-                            </span>
-                          </span>
-                        </div>
-                      ))}
+                      {entries.map((e) => {
+                        const key = cartItemKey(planId, e.productName, e.style);
+                        return (
+                          <div className="cart-item-row" key={key}>
+                            <div className="cart-item-left">
+                              <input
+                                type="checkbox"
+                                disabled={isInactive}
+                                checked={selectedCartKeys.has(key)}
+                                onChange={() => toggleCartItemSelect(key)}
+                              />
+                              {e.imageUrl ? (
+                                <img src={e.imageUrl} alt={e.productName} className="cart-item-img" />
+                              ) : (
+                                <div className="cart-item-img cart-item-img-empty" />
+                              )}
+                              <span>{e.productName}{e.style ? `（${e.style}）` : ""} x{e.qty}</span>
+                            </div>
+                            <span className="cart-item-price">NT$ {fmt(e.qty * e.price)}</span>
+                          </div>
+                        );
+                      })}
 
                       <div className="cart-group-footer">
                         <span style={{ fontWeight: 600 }}>小計 NT$ {fmt(groupTotal)}</span>
-                        {!isInactive ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div className="source-btns">
-                              {["匯款", ...(live && live.codLimit > 0 ? ["取付"] : [])].map((p) => (
-                                <button key={p} className={`src-btn ${payment === p ? "active" : ""}`} onClick={() => setCartPaymentByPlan((prev) => ({ ...prev, [planId]: p }))}>{p}</button>
-                              ))}
-                            </div>
-                            <button className="btn small" disabled={checkoutingPlanId === planId} onClick={() => checkoutCartGroup(planId)}>
-                              {checkoutingPlanId === planId ? "送出中…" : "送出訂單"}
-                            </button>
-                          </div>
-                        ) : (
+                        {isInactive && (
                           <span style={{ fontSize: 12, color: "var(--muted)" }}>
                             此企劃暫時無法下單，若重新開放會自動恢復
                           </span>
@@ -1294,6 +1389,75 @@ export default function Home() {
                     </div>
                   );
                 })}
+
+                {globalCart.length > 0 && (
+                  <div className="cart-checkout-bar">
+                    <span>已選 {selectedCartKeys.size} 項商品</span>
+                    <button className="btn" onClick={goToCheckout}>前往結帳</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {view === "checkout" && (
+              <div>
+                <a className="auth-back-link" onClick={openCart}>← 返回購物車</a>
+                <h2 className="section-title">結帳</h2>
+
+                {(() => {
+                  const selectedEntries = globalCart.filter((e) => selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style)) && isGroupActive(e.planId));
+                  const grouped = selectedEntries.reduce<Record<string, GlobalCartEntry[]>>((acc, e) => {
+                    acc[e.planId] = acc[e.planId] || [];
+                    acc[e.planId].push(e);
+                    return acc;
+                  }, {});
+                  const grandTotal = selectedEntries.reduce((s, e) => s + e.qty * e.price, 0);
+
+                  return (
+                    <>
+                      {Object.entries(grouped).map(([planId, entries]) => {
+                        const live = cartPlanStatus[planId];
+                        const planName = live?.name || entries[0].planName;
+                        const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
+                        const payment = checkoutPaymentByPlan[planId] || "匯款";
+                        return (
+                          <div key={planId} className="cart-group">
+                            <div className="cart-group-header">
+                              <span className="cart-group-plan-name" style={{ cursor: "default" }}>{planName}</span>
+                            </div>
+                            {entries.map((e) => (
+                              <div className="cart-item-row" key={`${e.productName}||${e.style}`}>
+                                <div className="cart-item-left">
+                                  {e.imageUrl ? <img src={e.imageUrl} alt={e.productName} className="cart-item-img" /> : <div className="cart-item-img cart-item-img-empty" />}
+                                  <span>{e.productName}{e.style ? `（${e.style}）` : ""} x{e.qty}</span>
+                                </div>
+                                <span className="cart-item-price">NT$ {fmt(e.qty * e.price)}</span>
+                              </div>
+                            ))}
+                            <div className="cart-group-footer">
+                              <span style={{ fontWeight: 600 }}>小計 NT$ {fmt(groupTotal)}</span>
+                              <div>
+                                <div className="id-label" style={{ marginBottom: 4 }}>這個企劃的交易方式</div>
+                                <div className="source-btns">
+                                  {["匯款", ...(live && live.codLimit > 0 ? ["取付"] : [])].map((p) => (
+                                    <button key={p} className={`src-btn ${payment === p ? "active" : ""}`} onClick={() => setCheckoutPaymentByPlan((prev) => ({ ...prev, [planId]: p }))}>{p}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      <div className="cart-checkout-bar">
+                        <span style={{ fontWeight: 600 }}>總計 NT$ {fmt(grandTotal)}</span>
+                        <button className="btn" disabled={submittingCheckout} onClick={submitCheckout}>
+                          {submittingCheckout ? "送出中…" : "確認送出訂單"}
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
 
