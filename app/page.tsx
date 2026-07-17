@@ -1289,10 +1289,8 @@ export default function Home() {
                           {o.planName}
                           <span className="hist-order-no">訂單編號 {o.orderNo}</span>
                         </span>
-                        <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
-                          <ChevronDown size={16} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
-                        </span>
+                        <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
+                        <ChevronDown size={22} className="hist-toggle-icon" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
                       </div>
                       {expanded && (
                         <>
@@ -1312,7 +1310,7 @@ export default function Home() {
                           <div className="hist-total">交易方式：{o.payment}　合計 NT$ {fmt(o.total)}</div>
                           <div className="hist-actions">
                             {o.cancelRequested ? (
-                              <span className="hist-cancel-badge">取消審核中，請等待最高管理者確認</span>
+                              <span className="hist-cancel-badge">取消審核中，請等待管理者確認</span>
                             ) : o.planClosed ? (
                               <span style={{ fontSize: 12, color: "var(--muted)" }}>企劃已截止，無法申請取消</span>
                             ) : (

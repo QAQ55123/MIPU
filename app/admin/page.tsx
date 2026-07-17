@@ -26,9 +26,14 @@ export default function AdminPage() {
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [adminEmailPw, setAdminEmailPw] = useState("");
   const [adminEmailMsg, setAdminEmailMsg] = useState("");
+  const [adminCurrentPw, setAdminCurrentPw] = useState("");
+  const [adminNewPw, setAdminNewPw] = useState("");
+  const [adminConfirmPw, setAdminConfirmPw] = useState("");
+  const [adminPwMsg, setAdminPwMsg] = useState("");
+  const [savingAdminPw, setSavingAdminPw] = useState(false);
   const [savingAdminEmail, setSavingAdminEmail] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "orders" | "members" | "codes">("account");
+  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "products" | "orders" | "members" | "codes">("account");
   const categoryFormRef = useRef<HTMLDivElement>(null);
   const planFormRef = useRef<HTMLDivElement>(null);
   const [categoryFilterText, setCategoryFilterText] = useState("");
@@ -70,6 +75,8 @@ export default function AdminPage() {
   const [orderLookupResult, setOrderLookupResult] = useState<any>(null);
   const [orderLookupMsg, setOrderLookupMsg] = useState("");
   const [cancelRequests, setCancelRequests] = useState<any[]>([]);
+  const [staffAdmins, setStaffAdmins] = useState<any[]>([]);
+  const [staffAdminsMsg, setStaffAdminsMsg] = useState("");
   const [cancelRequestsMsg, setCancelRequestsMsg] = useState("");
   const [inviteCodes, setInviteCodes] = useState<any[]>([]);
   const [inviteCodesMsg, setInviteCodesMsg] = useState("");
@@ -105,6 +112,7 @@ export default function AdminPage() {
         loadProfileRequests();
         loadInviteCodes();
         loadCancelRequests();
+        loadStaffAdmins();
       }
     }
   }, [unlocked, currentRole]);
@@ -173,6 +181,25 @@ export default function AdminPage() {
       setAdminEmailMsg("失敗：" + e.message);
     } finally {
       setSavingAdminEmail(false);
+    }
+  }
+
+  async function changeAdminPassword() {
+    setAdminPwMsg("");
+    if (!adminCurrentPw) return setAdminPwMsg("請輸入目前的密碼");
+    if (adminNewPw.length < 8) return setAdminPwMsg("新密碼至少要 8 個字");
+    if (adminNewPw !== adminConfirmPw) return setAdminPwMsg("兩次輸入的新密碼不一樣");
+    setSavingAdminPw(true);
+    try {
+      await callJson("/api/admin/change-password", "POST", { password: adminCurrentPw, newPassword: adminNewPw });
+      setAdminPwMsg("密碼已更新。");
+      setAdminCurrentPw("");
+      setAdminNewPw("");
+      setAdminConfirmPw("");
+    } catch (e: any) {
+      setAdminPwMsg("失敗：" + e.message);
+    } finally {
+      setSavingAdminPw(false);
     }
   }
 
@@ -403,6 +430,7 @@ export default function AdminPage() {
   async function openProductManager(p: PlanAdmin) {
     setActivePlanForProducts(p);
     setProductForm(emptyProductForm);
+    setActiveSection("products");
     const r = await fetch(`/api/admin/products?planId=${p.id}`);
     if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
     const d = await r.json();
@@ -630,6 +658,29 @@ export default function AdminPage() {
     }
   }
 
+  async function loadStaffAdmins() {
+    try {
+      const r = await fetch("/api/admin/staff", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setStaffAdmins(d.admins || []);
+    } catch {
+      setStaffAdminsMsg("載入失敗");
+    }
+  }
+
+  async function deleteStaffAdmin(id: string, username: string) {
+    if (!confirm(`確定要刪除管理者「${username}」的帳號嗎？這個動作無法復原。`)) return;
+    setStaffAdminsMsg("刪除中…");
+    try {
+      await callJson("/api/admin/staff", "DELETE", { id });
+      setStaffAdminsMsg("已刪除。");
+      loadStaffAdmins();
+    } catch (e: any) {
+      setStaffAdminsMsg("失敗：" + e.message);
+    }
+  }
+
   async function loadInviteCodes() {
     try {
       const r = await fetch("/api/admin/invite-codes", { cache: "no-store" });
@@ -729,6 +780,7 @@ export default function AdminPage() {
 
         <main style={{ flex: 1, minWidth: 0 }}>
           {activeSection === "account" && (
+            <>
       <div className="auth-card">
         <h3>我的帳號設定</h3>
         <div className="id-row">
@@ -758,6 +810,25 @@ export default function AdminPage() {
         <button className="btn" onClick={saveAdminEmail} disabled={savingAdminEmail}>{savingAdminEmail ? "儲存中…" : "更新信箱"}</button>
         <div style={{ fontSize: 13, marginTop: 6 }}>{adminEmailMsg}</div>
       </div>
+
+      <div className="auth-card">
+        <h3>修改密碼</h3>
+        <div className="id-row">
+          <span className="id-label">目前密碼</span>
+          <input type="password" value={adminCurrentPw} onChange={(e) => setAdminCurrentPw(e.target.value)} />
+        </div>
+        <div className="id-row">
+          <span className="id-label">新密碼</span>
+          <input type="password" value={adminNewPw} onChange={(e) => setAdminNewPw(e.target.value)} placeholder="至少 8 個字" />
+        </div>
+        <div className="id-row">
+          <span className="id-label">確認新密碼</span>
+          <input type="password" value={adminConfirmPw} onChange={(e) => setAdminConfirmPw(e.target.value)} />
+        </div>
+        <button className="btn" onClick={changeAdminPassword} disabled={savingAdminPw}>{savingAdminPw ? "儲存中…" : "更新密碼"}</button>
+        <div style={{ fontSize: 13, marginTop: 6 }}>{adminPwMsg}</div>
+      </div>
+            </>
           )}
 
           {activeSection === "categories" && (
@@ -949,8 +1020,10 @@ export default function AdminPage() {
           );
         })}
       </div>
+            </>
+          )}
 
-      {activePlanForProducts && (
+          {activeSection === "products" && activePlanForProducts && (
         <div className="auth-card">
           <h3>商品管理：{activePlanForProducts.name}</h3>
           <div style={{ marginBottom: 12 }}>
@@ -1013,12 +1086,10 @@ export default function AdminPage() {
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" onClick={saveProduct}>{productForm.id ? "儲存修改" : "新增商品"}</button>
             {productForm.id && <button className="btn secondary" onClick={() => setProductForm(emptyProductForm)}>取消編輯</button>}
-            <button className="btn secondary" onClick={() => setActivePlanForProducts(null)}>關閉商品管理</button>
+            <button className="btn secondary" onClick={() => { setActivePlanForProducts(null); setActiveSection("plans"); }}>關閉商品管理</button>
           </div>
           <div style={{ fontSize: 13, marginTop: 6 }}>{productMsg}</div>
         </div>
-      )}
-            </>
           )}
 
           {activeSection === "members" && currentRole === "owner" && (
@@ -1139,6 +1210,7 @@ export default function AdminPage() {
           )}
 
           {activeSection === "codes" && currentRole === "owner" && (
+            <>
         <div className="auth-card">
           <h3>Staff 邀請碼管理</h3>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
@@ -1171,6 +1243,29 @@ export default function AdminPage() {
             </div>
           ))}
         </div>
+
+        <div className="auth-card">
+          <h3>管理者名單</h3>
+          {staffAdmins.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有任何管理者帳號</div>}
+          {staffAdmins.map((a) => (
+            <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>
+                  {a.username}
+                  <span style={{ fontWeight: 400, fontSize: 12, color: a.role === "owner" ? "#33415C" : "#8A8779", marginLeft: 8 }}>
+                    {a.role === "owner" ? "最高權限" : "一般管理者"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "#8A8779" }}>{a.email}（{a.emailVerified ? "已驗證" : "尚未驗證"}）</div>
+              </div>
+              {a.role !== "owner" && (
+                <button className="btn small danger" onClick={() => deleteStaffAdmin(a.id, a.username)}>刪除</button>
+              )}
+            </div>
+          ))}
+          <div style={{ fontSize: 13, marginTop: 6 }}>{staffAdminsMsg}</div>
+        </div>
+            </>
           )}
         </main>
       </div>

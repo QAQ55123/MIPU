@@ -95,7 +95,8 @@ html, body {
 .banner.warn { background: #fef9c3; color: #854d0e; }
 
 .hist-card { background: #f8fafc; border: 1px solid var(--line); border-left: 4px solid var(--primary); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
-.hist-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.hist-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.hist-toggle-icon { color: var(--muted); flex: 0 0 auto; margin-left: auto; }
 .hist-src { font-size: 14px; font-weight: 600; color: var(--primary-d); display: flex; flex-direction: column; gap: 2px; }
 .hist-order-no { font-size: 12px; font-weight: 400; color: var(--muted); }
 .hist-time { font-size: 12px; color: var(--muted); }
