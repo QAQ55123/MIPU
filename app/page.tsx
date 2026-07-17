@@ -1444,10 +1444,10 @@ export default function Home() {
                                 <span className="cart-item-price">NT$ {fmt(e.qty * e.price)}</span>
                               </div>
                             ))}
-                            <div className="cart-group-footer">
+                            <div className="cart-checkout-footer">
                               <span style={{ fontWeight: 600 }}>小計 NT$ {fmt(groupTotal)}</span>
-                              <div>
-                                <div className="id-label" style={{ marginBottom: 4 }}>這個企劃的交易方式</div>
+                              <div className="cart-checkout-payment">
+                                <div className="id-label" style={{ marginBottom: 6 }}>這個企劃的交易方式</div>
                                 <div className="source-btns">
                                   {["匯款", "取付"].map((p) => (
                                     <button
@@ -1461,7 +1461,7 @@ export default function Home() {
                                   ))}
                                 </div>
                                 {codOverLimit && (
-                                  <div style={{ color: "#B3261E", fontSize: 12, marginTop: 4 }}>
+                                  <div style={{ color: "#B3261E", fontSize: 12, marginTop: 6 }}>
                                     取付金額超過上限（NT$ {fmt(codLimit)}），請改用匯款或減少數量
                                   </div>
                                 )}
