@@ -598,7 +598,12 @@ export default function Home() {
     }
 
     if (succeededPlanIds.length > 0) {
-      setGlobalCart((prev) => prev.filter((e) => !succeededPlanIds.includes(e.planId)));
+      const succeededKeys = new Set(
+        selectedEntries
+          .filter((e) => succeededPlanIds.includes(e.planId))
+          .map((e) => cartItemKey(e.planId, e.productName, e.style))
+      );
+      setGlobalCart((prev) => prev.filter((e) => !succeededKeys.has(cartItemKey(e.planId, e.productName, e.style))));
       setSelectedCartKeys((prev) => {
         const next = new Set(prev);
         for (const e of selectedEntries) {
@@ -1419,7 +1424,12 @@ export default function Home() {
                         const live = cartPlanStatus[planId];
                         const planName = live?.name || entries[0].planName;
                         const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
-                        const payment = checkoutPaymentByPlan[planId] || "匯款";
+                        const codLimit = live?.codLimit || 0;
+                        const codOffered = codLimit > 0;
+                        const codOverLimit = codOffered && groupTotal > codLimit;
+                        const codDisabled = !codOffered || codOverLimit;
+                        const rawPayment = checkoutPaymentByPlan[planId] || "匯款";
+                        const payment = rawPayment === "取付" && codDisabled ? "匯款" : rawPayment;
                         return (
                           <div key={planId} className="cart-group">
                             <div className="cart-group-header">
@@ -1439,10 +1449,22 @@ export default function Home() {
                               <div>
                                 <div className="id-label" style={{ marginBottom: 4 }}>這個企劃的交易方式</div>
                                 <div className="source-btns">
-                                  {["匯款", ...(live && live.codLimit > 0 ? ["取付"] : [])].map((p) => (
-                                    <button key={p} className={`src-btn ${payment === p ? "active" : ""}`} onClick={() => setCheckoutPaymentByPlan((prev) => ({ ...prev, [planId]: p }))}>{p}</button>
+                                  {["匯款", "取付"].map((p) => (
+                                    <button
+                                      key={p}
+                                      className={`src-btn ${payment === p ? "active" : ""}`}
+                                      disabled={p === "取付" && codDisabled}
+                                      onClick={() => setCheckoutPaymentByPlan((prev) => ({ ...prev, [planId]: p }))}
+                                    >
+                                      {p}
+                                    </button>
                                   ))}
                                 </div>
+                                {codOverLimit && (
+                                  <div style={{ color: "#B3261E", fontSize: 12, marginTop: 4 }}>
+                                    取付金額超過上限（NT$ {fmt(codLimit)}），請改用匯款或減少數量
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
