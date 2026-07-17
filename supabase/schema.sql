@@ -59,6 +59,8 @@ create table if not exists plans (
   visible_to    text[] default '{}',         -- 顯示對象，例如 {LINE,DC}；空陣列 = 全部看得到
   category_id   uuid references categories(id) on delete set null,  -- 歸屬的分類或子分類（可為任一層）
   promo_images  text[] default '{}',         -- 宣傳圖（可多張），顯示在商品頁最上方
+  hide_after_days   int,                     -- 截止後幾天要從瀏覽清單隱藏（留空＝永遠不自動隱藏）
+  fulfillment_status text,                   -- 企劃目前狀態：purchased 已購買／shipping 運輸中／arrived 已到貨／distributing 已開賣場（留空＝尚未開始）
   sort_order    int default 0,
   created_at    timestamptz default now()
 );

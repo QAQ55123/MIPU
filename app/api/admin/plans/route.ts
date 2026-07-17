@@ -36,6 +36,8 @@ export async function GET(req: Request) {
       categoryName: p.categories?.name || null,
       promoImages: p.promo_images || [],
       sortOrder: p.sort_order,
+      hideAfterDays: p.hide_after_days,
+      fulfillmentStatus: p.fulfillment_status,
     })),
   });
 }
@@ -69,6 +71,8 @@ export async function POST(req: Request) {
       category_id: body.categoryId || null,
       promo_images: body.promoImages || [],
       sort_order: nextSortOrder,
+      hide_after_days: body.hideAfterDays === "" || body.hideAfterDays == null ? null : Number(body.hideAfterDays),
+      fulfillment_status: body.fulfillmentStatus || null,
     })
     .select()
     .single();
@@ -100,6 +104,8 @@ export async function PUT(req: Request) {
       visible_to: body.visibleTo || [],
       category_id: body.categoryId || null,
       promo_images: body.promoImages || [],
+      hide_after_days: body.hideAfterDays === "" || body.hideAfterDays == null ? null : Number(body.hideAfterDays),
+      fulfillment_status: body.fulfillmentStatus || null,
     })
     .eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

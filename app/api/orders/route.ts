@@ -139,7 +139,7 @@ export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
   const { data: orders, error } = await supabase
     .from("orders")
-    .select("*, plans(name, image_url, deadline), order_items(*)")
+    .select("*, plans(name, image_url, deadline, fulfillment_status), order_items(*)")
     .ilike("username", username)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -155,6 +155,7 @@ export async function GET(req: Request) {
       createdAt: o.created_at,
       cancelRequested: !!o.cancel_requested_at,
       planClosed: o.plans?.deadline ? new Date(o.plans.deadline).getTime() < Date.now() : false,
+      fulfillmentStatus: o.plans?.fulfillment_status || null,
       items: (o.order_items || []).map((it: any) => ({
         name: it.product_name,
         style: it.style,

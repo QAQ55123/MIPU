@@ -13,7 +13,7 @@ export async function GET(req: Request) {
 
   let query = supabase
     .from("plans")
-    .select("id, name, deadline, image_url, cod_limit, visible_to, sort_order, category_id, categories(id, name, parent_id)")
+    .select("id, name, deadline, image_url, cod_limit, visible_to, sort_order, category_id, hide_after_days, categories(id, name, parent_id)")
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
 
@@ -50,13 +50,21 @@ export async function GET(req: Request) {
     if (missingIds.length > 0) {
       const { data: extra } = await supabase
         .from("plans")
-        .select("id, name, deadline, image_url, cod_limit, visible_to, sort_order, category_id, categories(id, name, parent_id)")
+        .select("id, name, deadline, image_url, cod_limit, visible_to, sort_order, category_id, hide_after_days, categories(id, name, parent_id)")
         .in("id", missingIds);
       rows = rows.concat(extra || []);
     }
   }
 
   const now = Date.now();
+
+  // 截止後超過設定天數的企劃，從瀏覽清單自動隱藏（沒設定天數的話永遠不會自動隱藏）
+  rows = rows.filter((p: any) => {
+    if (!p.deadline || p.hide_after_days == null) return true;
+    const hideAt = new Date(p.deadline).getTime() + Number(p.hide_after_days) * 24 * 60 * 60 * 1000;
+    return now < hideAt;
+  });
+
   const plans = rows.map((p: any) => ({
     id: p.id,
     name: p.name,

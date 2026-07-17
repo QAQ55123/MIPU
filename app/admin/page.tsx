@@ -6,11 +6,12 @@ type PlanAdmin = {
   id: string; name: string; deadline: string | null; imageUrl: string | null;
   codLimit: number; visibleTo: string[]; categoryId: string | null; categoryName: string | null;
   promoImages?: string[]; sortOrder?: number;
+  hideAfterDays?: number | null; fulfillmentStatus?: string | null;
 };
 type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null };
 
 const emptyCategoryForm = { id: "", name: "", parentId: "" };
-const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", visibleTo: [] as string[], categoryId: "", promoImages: [] as string[] };
+const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", visibleTo: [] as string[], categoryId: "", promoImages: [] as string[], hideAfterDays: "", fulfillmentStatus: "" };
 const emptyProductForm = { id: "", name: "", style: "", price: "0", imageUrl: "" };
 
 export default function AdminPage() {
@@ -352,6 +353,8 @@ export default function AdminPage() {
       visibleTo: p.visibleTo || [],
       categoryId: p.categoryId || "",
       promoImages: p.promoImages || [],
+      hideAfterDays: p.hideAfterDays != null ? String(p.hideAfterDays) : "",
+      fulfillmentStatus: p.fulfillmentStatus || "",
     });
     planFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -367,6 +370,8 @@ export default function AdminPage() {
       visibleTo: planForm.visibleTo,
       categoryId: planForm.categoryId || null,
       promoImages: planForm.promoImages,
+      hideAfterDays: planForm.hideAfterDays,
+      fulfillmentStatus: planForm.fulfillmentStatus || null,
     };
     try {
       if (planForm.id) {
@@ -937,6 +942,21 @@ export default function AdminPage() {
           <span className="id-label">截止時間</span>
           <input type="datetime-local" value={planForm.deadline} onChange={(e) => setPlanForm((f) => ({ ...f, deadline: e.target.value }))} style={{ flex: 1, padding: 8 }} />
           <span style={{ fontSize: 12, color: "#8A8779" }}>留空＝常駐（沒有截止日）</span>
+        </div>
+        <div className="id-row">
+          <span className="id-label">截止後隱藏</span>
+          <input type="number" min={0} value={planForm.hideAfterDays} onChange={(e) => setPlanForm((f) => ({ ...f, hideAfterDays: e.target.value }))} placeholder="留空＝永遠不自動隱藏" />
+          <span style={{ fontSize: 12, color: "#8A8779" }}>天後從瀏覽清單隱藏</span>
+        </div>
+        <div className="id-row">
+          <span className="id-label">企劃狀態</span>
+          <select value={planForm.fulfillmentStatus} onChange={(e) => setPlanForm((f) => ({ ...f, fulfillmentStatus: e.target.value }))} style={{ flex: 1, padding: 8 }}>
+            <option value="">（尚未開始）</option>
+            <option value="purchased">企劃商品已購買</option>
+            <option value="shipping">運輸中</option>
+            <option value="arrived">已到貨</option>
+            <option value="distributing">已開賣場</option>
+          </select>
         </div>
         <div className="id-row">
           <span className="id-label">取付上限</span>

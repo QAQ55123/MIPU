@@ -20,6 +20,13 @@ type GlobalCartEntry = {
   price: number;
   imageUrl?: string;
 };
+
+const FULFILLMENT_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  purchased: { label: "企劃商品已購買", color: "#4bd6af" },
+  shipping: { label: "運輸中", color: "#f5cf78" },
+  arrived: { label: "已到貨", color: "#fa4166" },
+  distributing: { label: "已開賣場", color: "#16a34a" },
+};
 type Identity = { username: string; profileUrl: string; email: string; emailVerified: boolean; pendingProfileUrl?: string | null } | null;
 type PendingAction = null | "order" | "history" | "favorites";
 
@@ -1288,6 +1295,14 @@ export default function Home() {
                         <span className="hist-src">
                           {o.planName}
                           <span className="hist-order-no">訂單編號 {o.orderNo}</span>
+                          {o.fulfillmentStatus && FULFILLMENT_STATUS_MAP[o.fulfillmentStatus] && (
+                            <span
+                              className="hist-status-badge"
+                              style={{ background: FULFILLMENT_STATUS_MAP[o.fulfillmentStatus].color }}
+                            >
+                              {FULFILLMENT_STATUS_MAP[o.fulfillmentStatus].label}
+                            </span>
+                          )}
                         </span>
                         <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
                         <ChevronDown size={22} className="hist-toggle-icon" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
