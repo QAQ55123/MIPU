@@ -518,6 +518,20 @@ export default function Home() {
     setGlobalCart((prev) => prev.filter((e) => e.planId !== planId));
   }
 
+  function changeCartQty(planId: string, productName: string, style: string, delta: number) {
+    setGlobalCart((prev) =>
+      prev
+        .map((e) => (e.planId === planId && e.productName === productName && e.style === style ? { ...e, qty: Math.max(1, e.qty + delta) } : e))
+    );
+  }
+
+  function setCartQtyExact(planId: string, productName: string, style: string, raw: string) {
+    const val = Math.max(1, Math.floor(Number(raw)) || 1);
+    setGlobalCart((prev) =>
+      prev.map((e) => (e.planId === planId && e.productName === productName && e.style === style ? { ...e, qty: val } : e))
+    );
+  }
+
   function cartItemKey(planId: string, productName: string, style: string) {
     return `${planId}||${productName}||${style}`;
   }
@@ -1311,18 +1325,25 @@ export default function Home() {
             {view === "cart" && (
               <div>
                 <h2 className="section-title">購物車</h2>
-                {globalCart.length === 0 && <div className="spinner">購物車是空的</div>}
+
+                {globalCart.length === 0 && (
+                  <div className="cart-empty">
+                    <div className="cart-empty-icon"><ShoppingCart size={32} /></div>
+                    <p>購物車是空的</p>
+                    <button className="btn" onClick={goHome}>去逛逛企劃</button>
+                  </div>
+                )}
 
                 {globalCart.length > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-                      <input type="checkbox" onChange={toggleSelectAllCart} checked={
+                  <div className="cart-toolbar">
+                    <label className="cart-checkbox-label">
+                      <input type="checkbox" className="cart-checkbox" onChange={toggleSelectAllCart} checked={
                         globalCart.filter((e) => isGroupActive(e.planId)).length > 0 &&
                         globalCart.filter((e) => isGroupActive(e.planId)).every((e) => selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style)))
                       } />
-                      全選（{selectedCartKeys.size} 項已選）
+                      <span>全選（{selectedCartKeys.size} 項已選）</span>
                     </label>
-                    <button className="btn small secondary" onClick={deleteSelectedCartItems}>刪除已選</button>
+                    <button className="btn small secondary" onClick={deleteSelectedCartItems} disabled={selectedCartKeys.size === 0}>刪除已選</button>
                   </div>
                 )}
 
@@ -1340,7 +1361,7 @@ export default function Home() {
                   const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
 
                   return (
-                    <div key={planId} className="cart-group" style={{ opacity: isInactive ? 0.6 : 1 }}>
+                    <div key={planId} className={`cart-group ${isInactive ? "cart-group-inactive" : ""}`}>
                       <div className="cart-group-header">
                         <div>
                           <span
@@ -1356,7 +1377,7 @@ export default function Home() {
                             </span>
                           )}
                         </div>
-                        {isInactive && <span className="plan-card-v2-status closed-tag" style={{ position: "static" }}>已失效</span>}
+                        {isInactive && <span className="cart-inactive-badge">已失效</span>}
                       </div>
 
                       {entries.map((e) => {
@@ -1366,6 +1387,7 @@ export default function Home() {
                             <div className="cart-item-left">
                               <input
                                 type="checkbox"
+                                className="cart-checkbox"
                                 disabled={isInactive}
                                 checked={selectedCartKeys.has(key)}
                                 onChange={() => toggleCartItemSelect(key)}
@@ -1375,9 +1397,30 @@ export default function Home() {
                               ) : (
                                 <div className="cart-item-img cart-item-img-empty" />
                               )}
-                              <span>{e.productName}{e.style ? `（${e.style}）` : ""} x{e.qty}</span>
+                              <div className="cart-item-info">
+                                <span className="cart-item-name">{e.productName}{e.style ? `（${e.style}）` : ""}</span>
+                                <span className="cart-item-unit-price">NT$ {fmt(e.price)} / 件</span>
+                              </div>
                             </div>
-                            <span className="cart-item-price">NT$ {fmt(e.qty * e.price)}</span>
+                            <div className="cart-item-right">
+                              {!isInactive ? (
+                                <div className="stepper">
+                                  <button className="step-btn" disabled={e.qty <= 1} onClick={() => changeCartQty(planId, e.productName, e.style, -1)}>－</button>
+                                  <input
+                                    className="qty"
+                                    type="number"
+                                    min={1}
+                                    value={e.qty}
+                                    onChange={(ev) => setCartQtyExact(planId, e.productName, e.style, ev.target.value)}
+                                  />
+                                  <button className="step-btn" onClick={() => changeCartQty(planId, e.productName, e.style, 1)}>＋</button>
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: 13, color: "var(--muted)" }}>x{e.qty}</span>
+                              )}
+                              <span className="cart-item-price">NT$ {fmt(e.qty * e.price)}</span>
+                              <span className="cart-item-remove" onClick={() => removeCartItem(planId, e.productName, e.style)} title="移除">×</span>
+                            </div>
                           </div>
                         );
                       })}
@@ -1397,8 +1440,15 @@ export default function Home() {
 
                 {globalCart.length > 0 && (
                   <div className="cart-checkout-bar">
-                    <span>已選 {selectedCartKeys.size} 項商品</span>
-                    <button className="btn" onClick={goToCheckout}>前往結帳</button>
+                    <span>
+                      已選 <strong>{selectedCartKeys.size}</strong> 項商品　
+                      合計 <strong>NT$ {fmt(
+                        globalCart
+                          .filter((e) => selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style)))
+                          .reduce((s, e) => s + e.qty * e.price, 0)
+                      )}</strong>
+                    </span>
+                    <button className="btn" disabled={selectedCartKeys.size === 0} onClick={goToCheckout}>前往結帳</button>
                   </div>
                 )}
               </div>
