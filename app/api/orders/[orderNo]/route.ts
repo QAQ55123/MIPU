@@ -51,3 +51,26 @@ export async function PUT(req: Request, { params }: { params: { orderNo: string 
 
   return NextResponse.json({ ok: true, count: newRows.length });
 }
+
+/** 申請取消訂單（需要最高管理者審核，且要在企劃截止前才能申請）body: { username } */
+export async function PATCH(req: Request, { params }: { params: { orderNo: string } }) {
+  const body = await req.json();
+  const { username } = body;
+  const supabase = getSupabaseAdmin();
+
+  const { data: order, error } = await supabase.from("orders").select("*, plans(deadline)").eq("order_no", params.orderNo).single();
+  if (error || !order) return NextResponse.json({ error: "找不到訂單" }, { status: 404 });
+
+  if (!username || String(username).toLowerCase() !== String(order.username).toLowerCase()) {
+    return NextResponse.json({ error: "身分驗證失敗，無法申請取消此訂單" }, { status: 403 });
+  }
+  if (order.plans?.deadline && new Date(order.plans.deadline).getTime() < Date.now()) {
+    return NextResponse.json({ error: "此企劃已截止，無法申請取消訂單" }, { status: 400 });
+  }
+  if (order.cancel_requested_at) {
+    return NextResponse.json({ error: "已經申請過取消了，請等待審核" }, { status: 400 });
+  }
+
+  await supabase.from("orders").update({ cancel_requested_at: new Date().toISOString() }).eq("id", order.id);
+  return NextResponse.json({ ok: true });
+}

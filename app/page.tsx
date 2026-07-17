@@ -106,6 +106,7 @@ export default function Home() {
   const [plansLoading, setPlansLoading] = useState(true);
   const [productsLoading, setProductsLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({}); // key: name||style（目前正在瀏覽的企劃、還沒加入購物車前的暫存）
@@ -664,20 +665,30 @@ export default function Home() {
     const r = await fetch(`/api/orders?${params.toString()}`, { cache: "no-store" });
     const d = await r.json();
     setHistory(d.orders || []);
+    setExpandedOrders(new Set((d.orders || []).map((o: any) => o.orderNo))); // 預設全部展開
     setHistoryLoading(false);
   }
 
-  async function cancelOrder(orderNo: string) {
+  function toggleOrderExpanded(orderNo: string) {
+    setExpandedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderNo)) next.delete(orderNo);
+      else next.add(orderNo);
+      return next;
+    });
+  }
+
+  async function requestCancelOrder(orderNo: string) {
     if (!identity) return;
-    if (!confirm("確定要取消這張訂單嗎？")) return;
+    if (!confirm("確定要申請取消這張訂單嗎？申請後需要等最高管理者審核通過才會真的取消。")) return;
     const r = await fetch(`/api/orders/${orderNo}`, {
-      method: "PUT",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: [], username: identity.username }),
+      body: JSON.stringify({ username: identity.username }),
     });
     const d = await r.json();
-    if (!r.ok) return showToast(d.error || "取消失敗");
-    showToast("已取消訂單");
+    if (!r.ok) return showToast(d.error || "申請失敗");
+    showToast("已送出取消申請，請等待審核");
     openHistoryNow();
   }
 
@@ -1269,24 +1280,50 @@ export default function Home() {
                 <h2 className="section-title">我的歷史訂單</h2>
                 {historyLoading && <div className="spinner">載入中…</div>}
                 {!historyLoading && history.length === 0 && <div className="spinner">目前沒有訂單紀錄</div>}
-                {!historyLoading && history.map((o) => (
-                  <div className="hist-card" key={o.orderNo}>
-                    <div className="hist-head">
-                      <span className="hist-src">{o.planName}｜{o.username}</span>
-                      <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
-                    </div>
-                    {o.items.map((it: any, idx: number) => (
-                      <div className="hist-item" key={idx}>
-                        <span>{it.name}{it.style ? `（${it.style}）` : ""} x{it.qty}</span>
-                        <span>NT$ {fmt(it.subtotal)}</span>
+                {!historyLoading && history.map((o) => {
+                  const expanded = expandedOrders.has(o.orderNo);
+                  return (
+                    <div className="hist-card" key={o.orderNo}>
+                      <div className="hist-head" onClick={() => toggleOrderExpanded(o.orderNo)} style={{ cursor: "pointer" }}>
+                        <span className="hist-src">
+                          {o.planName}
+                          <span className="hist-order-no">訂單編號 {o.orderNo}</span>
+                        </span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
+                          <ChevronDown size={16} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                        </span>
                       </div>
-                    ))}
-                    <div className="hist-total">交易方式：{o.payment}　合計 NT$ {fmt(o.total)}</div>
-                    <div className="hist-actions">
-                      <button className="btn danger small" onClick={() => cancelOrder(o.orderNo)}>取消訂單</button>
+                      {expanded && (
+                        <>
+                          {o.items.map((it: any, idx: number) => (
+                            <div className="hist-item" key={idx}>
+                              <div className="hist-item-left">
+                                {it.imageUrl ? (
+                                  <img src={it.imageUrl} alt={it.name} className="hist-item-img" />
+                                ) : (
+                                  <div className="hist-item-img hist-item-img-empty" />
+                                )}
+                                <span>{it.name}{it.style ? `（${it.style}）` : ""} x{it.qty}</span>
+                              </div>
+                              <span>NT$ {fmt(it.subtotal)}</span>
+                            </div>
+                          ))}
+                          <div className="hist-total">交易方式：{o.payment}　合計 NT$ {fmt(o.total)}</div>
+                          <div className="hist-actions">
+                            {o.cancelRequested ? (
+                              <span className="hist-cancel-badge">取消審核中，請等待最高管理者確認</span>
+                            ) : o.planClosed ? (
+                              <span style={{ fontSize: 12, color: "var(--muted)" }}>企劃已截止，無法申請取消</span>
+                            ) : (
+                              <button className="btn danger small" onClick={() => requestCancelOrder(o.orderNo)}>申請取消訂單</button>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -1353,7 +1390,13 @@ export default function Home() {
                     acc[e.planId].push(e);
                     return acc;
                   }, {})
-                ).map(([planId, entries]) => {
+                )
+                  .sort(([planIdA], [planIdB]) => {
+                    const inactiveA = cartPlanStatus[planIdA] ? (!cartPlanStatus[planIdA].found || cartPlanStatus[planIdA].closed) : false;
+                    const inactiveB = cartPlanStatus[planIdB] ? (!cartPlanStatus[planIdB].found || cartPlanStatus[planIdB].closed) : false;
+                    return Number(inactiveA) - Number(inactiveB);
+                  })
+                  .map(([planId, entries]) => {
                   const live = cartPlanStatus[planId];
                   const planName = live?.name || entries[0].planName;
                   const deadline = live ? live.deadline : entries[0].planDeadline;
@@ -1427,11 +1470,6 @@ export default function Home() {
 
                       <div className="cart-group-footer">
                         <span style={{ fontWeight: 600 }}>小計 NT$ {fmt(groupTotal)}</span>
-                        {isInactive && (
-                          <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                            此企劃暫時無法下單，若重新開放會自動恢復
-                          </span>
-                        )}
                         <button className="btn small secondary" onClick={() => removeCartGroup(planId)}>清除這組</button>
                       </div>
                     </div>

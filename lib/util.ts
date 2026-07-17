@@ -21,13 +21,9 @@ export function normFb(url: string): string {
 }
 
 /** 產生訂單編號，例如 20260714-183245-482 */
+/** 產生訂單編號：純隨機 9 碼數字，好記好唸（唯一性由資料庫的 unique 限制把關） */
 export function genOrderNo(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const datePart = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
-  const timePart = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const rand = Math.floor(Math.random() * 900 + 100);
-  return `${datePart}-${timePart}-${rand}`;
+  return String(Math.floor(100000000 + Math.random() * 900000000));
 }
 
 export function fmtMoney(n: number): string {

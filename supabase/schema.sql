@@ -106,6 +106,7 @@ create table if not exists orders (
   profile_url        text not null,               -- 下單當時的個人頁網址快照
   payment            text not null,               -- 匯款 / 取付
   paid_status        text default '',             -- 空 / 已付款 等
+  cancel_requested_at timestamptz,                 -- 使用者申請取消訂單的時間，要等最高管理者審核（核准＝刪除、拒絕＝清空這個欄位）
   created_at         timestamptz default now(),
   updated_at         timestamptz default now()
 );
@@ -119,7 +120,8 @@ create table if not exists order_items (
   style         text default '',
   qty           int not null,
   unit_price    numeric not null,
-  subtotal      numeric not null
+  subtotal      numeric not null,
+  image_url     text
 );
 create index if not exists idx_order_items_order on order_items (order_id);
 

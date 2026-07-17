@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 type Category = { id: string; name: string; parent_id: string | null; created_at?: string; sort_order?: number };
 type PlanAdmin = {
@@ -28,7 +28,11 @@ export default function AdminPage() {
   const [adminEmailMsg, setAdminEmailMsg] = useState("");
   const [savingAdminEmail, setSavingAdminEmail] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "members" | "codes">("account");
+  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "orders" | "members" | "codes">("account");
+  const categoryFormRef = useRef<HTMLDivElement>(null);
+  const planFormRef = useRef<HTMLDivElement>(null);
+  const [categoryFilterText, setCategoryFilterText] = useState("");
+  const [planFilterText, setPlanFilterText] = useState("");
   const [unlocked, setUnlocked] = useState(false);
 
   // ---- 分類 ----
@@ -58,6 +62,15 @@ export default function AdminPage() {
   const [resetMsg, setResetMsg] = useState("");
   const [profileRequests, setProfileRequests] = useState<any[]>([]);
   const [profileRequestsMsg, setProfileRequestsMsg] = useState("");
+  const [memberLookupUsername, setMemberLookupUsername] = useState("");
+  const [memberLookupResult, setMemberLookupResult] = useState<any>(null);
+  const [memberLookupMsg, setMemberLookupMsg] = useState("");
+  const [memberNewProfileUrl, setMemberNewProfileUrl] = useState("");
+  const [orderLookupNo, setOrderLookupNo] = useState("");
+  const [orderLookupResult, setOrderLookupResult] = useState<any>(null);
+  const [orderLookupMsg, setOrderLookupMsg] = useState("");
+  const [cancelRequests, setCancelRequests] = useState<any[]>([]);
+  const [cancelRequestsMsg, setCancelRequestsMsg] = useState("");
   const [inviteCodes, setInviteCodes] = useState<any[]>([]);
   const [inviteCodesMsg, setInviteCodesMsg] = useState("");
   const [generatingCode, setGeneratingCode] = useState(false);
@@ -91,6 +104,7 @@ export default function AdminPage() {
       if (currentRole === "owner") {
         loadProfileRequests();
         loadInviteCodes();
+        loadCancelRequests();
       }
     }
   }, [unlocked, currentRole]);
@@ -206,6 +220,7 @@ export default function AdminPage() {
 
   function editCategory(c: Category) {
     setCategoryForm({ id: c.id, name: c.name, parentId: c.parent_id || "" });
+    categoryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function saveCategory() {
@@ -311,6 +326,7 @@ export default function AdminPage() {
       categoryId: p.categoryId || "",
       promoImages: p.promoImages || [],
     });
+    planFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function savePlan() {
@@ -508,6 +524,112 @@ export default function AdminPage() {
     }
   }
 
+  async function lookupMember() {
+    setMemberLookupMsg("");
+    setMemberLookupResult(null);
+    if (!memberLookupUsername.trim()) return setMemberLookupMsg("請輸入帳號");
+    try {
+      const r = await fetch(`/api/admin/members?username=${encodeURIComponent(memberLookupUsername.trim())}`, { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      if (!r.ok) return setMemberLookupMsg(d.error || "查詢失敗");
+      setMemberLookupResult(d.member);
+      setMemberNewProfileUrl("");
+    } catch {
+      setMemberLookupMsg("網路連線失敗");
+    }
+  }
+
+  async function saveMemberProfileUrl() {
+    if (!memberLookupResult) return;
+    if (!memberNewProfileUrl.trim()) return setMemberLookupMsg("請輸入新的個人頁網址");
+    setMemberLookupMsg("儲存中…");
+    try {
+      const d = await callJson("/api/admin/members", "POST", { username: memberLookupResult.username, profileUrl: memberNewProfileUrl.trim() });
+      setMemberLookupResult((prev: any) => ({ ...prev, profileUrl: d.profileUrl, pendingProfileUrl: null }));
+      setMemberNewProfileUrl("");
+      setMemberLookupMsg("已更新個人頁網址。");
+    } catch (e: any) {
+      setMemberLookupMsg("失敗：" + e.message);
+    }
+  }
+
+  async function deleteMember() {
+    if (!memberLookupResult) return;
+    if (!confirm(`確定要刪除會員「${memberLookupResult.username}」嗎？這個動作無法復原（訂單紀錄會保留，只是不會再連到這個帳號）。`)) return;
+    setMemberLookupMsg("刪除中…");
+    try {
+      await callJson("/api/admin/members", "DELETE", { username: memberLookupResult.username });
+      setMemberLookupMsg("已刪除會員。");
+      setMemberLookupResult(null);
+      setMemberLookupUsername("");
+    } catch (e: any) {
+      setMemberLookupMsg("失敗：" + e.message);
+    }
+  }
+
+  async function lookupOrder() {
+    setOrderLookupMsg("");
+    setOrderLookupResult(null);
+    if (!orderLookupNo.trim()) return setOrderLookupMsg("請輸入訂單編號");
+    try {
+      const r = await fetch(`/api/admin/orders?orderNo=${encodeURIComponent(orderLookupNo.trim())}`, { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      if (!r.ok) return setOrderLookupMsg(d.error || "查詢失敗");
+      setOrderLookupResult(d.order);
+    } catch {
+      setOrderLookupMsg("網路連線失敗");
+    }
+  }
+
+  async function deleteOrderAdmin() {
+    if (!orderLookupResult) return;
+    if (!confirm(`確定要刪除訂單「${orderLookupResult.orderNo}」嗎？這個動作無法復原。`)) return;
+    setOrderLookupMsg("刪除中…");
+    try {
+      await callJson("/api/admin/orders", "DELETE", { orderNo: orderLookupResult.orderNo });
+      setOrderLookupMsg("已刪除訂單。");
+      setOrderLookupResult(null);
+      setOrderLookupNo("");
+    } catch (e: any) {
+      setOrderLookupMsg("失敗：" + e.message);
+    }
+  }
+
+  async function loadCancelRequests() {
+    try {
+      const r = await fetch("/api/admin/orders/cancel-requests", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setCancelRequests(d.requests || []);
+    } catch {
+      setCancelRequestsMsg("載入失敗");
+    }
+  }
+
+  async function approveCancelRequest(orderNo: string) {
+    setCancelRequestsMsg("處理中…");
+    try {
+      await callJson("/api/admin/orders/cancel-requests", "POST", { orderNo });
+      setCancelRequestsMsg("已核准，訂單已刪除。");
+      loadCancelRequests();
+    } catch (e: any) {
+      setCancelRequestsMsg("失敗：" + e.message);
+    }
+  }
+
+  async function rejectCancelRequest(orderNo: string) {
+    setCancelRequestsMsg("處理中…");
+    try {
+      await callJson("/api/admin/orders/cancel-requests", "DELETE", { orderNo });
+      setCancelRequestsMsg("已拒絕，訂單維持有效。");
+      loadCancelRequests();
+    } catch (e: any) {
+      setCancelRequestsMsg("失敗：" + e.message);
+    }
+  }
+
   async function loadInviteCodes() {
     try {
       const r = await fetch("/api/admin/invite-codes", { cache: "no-store" });
@@ -596,6 +718,7 @@ export default function AdminPage() {
           <div className={`account-nav-item ${activeSection === "account" ? "active" : ""}`} onClick={() => setActiveSection("account")}>帳號設定</div>
           <div className={`account-nav-item ${activeSection === "categories" ? "active" : ""}`} onClick={() => setActiveSection("categories")}>分類管理</div>
           <div className={`account-nav-item ${activeSection === "plans" ? "active" : ""}`} onClick={() => setActiveSection("plans")}>企劃管理</div>
+          <div className={`account-nav-item ${activeSection === "orders" ? "active" : ""}`} onClick={() => setActiveSection("orders")}>訂單管理</div>
           {currentRole === "owner" && (
             <>
               <div className={`account-nav-item ${activeSection === "members" ? "active" : ""}`} onClick={() => setActiveSection("members")}>會員管理</div>
@@ -638,7 +761,7 @@ export default function AdminPage() {
           )}
 
           {activeSection === "categories" && (
-      <div className="auth-card">
+      <div className="auth-card" ref={categoryFormRef}>
         <h3>分類管理</h3>
 
         <div className="id-row">
@@ -661,8 +784,21 @@ export default function AdminPage() {
         <div style={{ fontSize: 13, marginTop: 6 }}>{categoryMsg}</div>
 
         <div style={{ marginTop: 12, maxHeight: 320, overflowY: "auto", paddingRight: 4, borderTop: "1px solid #EDE9DC", paddingTop: 12 }}>
+          <input
+            type="text"
+            value={categoryFilterText}
+            onChange={(e) => setCategoryFilterText(e.target.value)}
+            placeholder="搜尋分類名稱…"
+            style={{ width: "100%", padding: 8, marginBottom: 10, border: "1px solid #EDE9DC", borderRadius: 8 }}
+          />
           <p style={{ fontSize: 12, color: "#8A8779", margin: "0 0 8px" }}>可以拖曳調整排列順序（子分類只能在同一個上層分類底下互相拖曳）</p>
-          {topCategories.map((c) => (
+          {topCategories
+            .filter((c) =>
+              !categoryFilterText.trim() ||
+              c.name.toLowerCase().includes(categoryFilterText.toLowerCase()) ||
+              childrenOf(c.id).some((sub) => sub.name.toLowerCase().includes(categoryFilterText.toLowerCase()))
+            )
+            .map((c) => (
             <div
               key={c.id}
               style={{ marginBottom: 6, opacity: draggedCategoryId === c.id ? 0.4 : 1 }}
@@ -705,7 +841,7 @@ export default function AdminPage() {
 
           {activeSection === "plans" && (
             <>
-      <div className="auth-card">
+      <div className="auth-card" ref={planFormRef}>
         <h3>企劃管理</h3>
 
         <div className="id-row">
@@ -772,8 +908,16 @@ export default function AdminPage() {
         </div>
         <div style={{ fontSize: 13, marginTop: 6 }}>{planMsg}</div>
 
+        <input
+          type="text"
+          value={planFilterText}
+          onChange={(e) => setPlanFilterText(e.target.value)}
+          placeholder="搜尋企劃名稱…"
+          style={{ width: "100%", padding: 8, marginTop: 16, border: "1px solid #EDE9DC", borderRadius: 8 }}
+        />
+
         {(["ongoing", "permanent", "closed"] as const).map((status) => {
-          const group = plans.filter((p) => getPlanStatus(p) === status);
+          const group = plans.filter((p) => getPlanStatus(p) === status && (!planFilterText.trim() || p.name.toLowerCase().includes(planFilterText.toLowerCase())));
           const label = status === "ongoing" ? "進行中" : status === "permanent" ? "常駐" : "已截止";
           return (
             <div key={status} style={{ marginTop: 16, borderTop: "1px solid #EDE9DC", paddingTop: 12 }}>
@@ -887,6 +1031,36 @@ export default function AdminPage() {
         </div>
 
         <div className="auth-card">
+          <h3>查詢會員／修改個人頁網址／刪除會員</h3>
+          <div className="id-row">
+            <span className="id-label">帳號</span>
+            <input type="text" value={memberLookupUsername} onChange={(e) => setMemberLookupUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && lookupMember()} />
+            <button className="btn small" onClick={lookupMember}>查詢</button>
+          </div>
+          <div style={{ fontSize: 13 }}>{memberLookupMsg}</div>
+
+          {memberLookupResult && (
+            <div style={{ borderTop: "1px solid #EDE9DC", paddingTop: 10, marginTop: 4 }}>
+              <div style={{ fontSize: 13, marginBottom: 4 }}>個人頁：<span style={{ wordBreak: "break-all" }}>{memberLookupResult.profileUrl}</span></div>
+              {memberLookupResult.pendingProfileUrl && (
+                <div style={{ fontSize: 12, color: "#B08E5A", marginBottom: 4 }}>審核中：{memberLookupResult.pendingProfileUrl}</div>
+              )}
+              <div style={{ fontSize: 13, marginBottom: 10 }}>
+                Email：{memberLookupResult.email}（{memberLookupResult.emailVerified ? "已驗證" : "尚未驗證"}）
+              </div>
+
+              <div className="id-row">
+                <span className="id-label">新個人頁</span>
+                <input type="text" value={memberNewProfileUrl} onChange={(e) => setMemberNewProfileUrl(e.target.value)} placeholder="直接生效，不用審核" />
+                <button className="btn small" onClick={saveMemberProfileUrl}>更新</button>
+              </div>
+
+              <button className="btn small danger" onClick={deleteMember} style={{ marginTop: 8 }}>刪除這個會員</button>
+            </div>
+          )}
+        </div>
+
+        <div className="auth-card">
           <h3>個人頁網址修改審核</h3>
           {profileRequests.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有待審核的申請</div>}
           {profileRequests.map((r) => (
@@ -907,6 +1081,61 @@ export default function AdminPage() {
           <div style={{ fontSize: 13, marginTop: 6 }}>{profileRequestsMsg}</div>
         </div>
             </>
+          )}
+
+          {activeSection === "orders" && (
+            <div className="auth-card">
+              <h3>訂單管理</h3>
+              <div className="id-row">
+                <span className="id-label">訂單編號</span>
+                <input type="text" value={orderLookupNo} onChange={(e) => setOrderLookupNo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && lookupOrder()} />
+                <button className="btn small" onClick={lookupOrder}>查詢</button>
+              </div>
+              <div style={{ fontSize: 13 }}>{orderLookupMsg}</div>
+
+              {orderLookupResult && (
+                <div style={{ borderTop: "1px solid #EDE9DC", paddingTop: 10, marginTop: 4 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{orderLookupResult.planName}</div>
+                  <div style={{ fontSize: 13, color: "#8A8779", margin: "4px 0" }}>
+                    帳號：{orderLookupResult.username}　交易方式：{orderLookupResult.payment}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>
+                    {new Date(orderLookupResult.createdAt).toLocaleString("zh-TW")}
+                  </div>
+                  {orderLookupResult.items.map((it: any, idx: number) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0", borderBottom: "1px dashed #EDE9DC" }}>
+                      <span>{it.name}{it.style ? `（${it.style}）` : ""} x{it.qty}</span>
+                      <span>NT$ {it.subtotal}</span>
+                    </div>
+                  ))}
+                  <div style={{ textAlign: "right", fontWeight: 600, marginTop: 8 }}>合計 NT$ {orderLookupResult.total}</div>
+                  <button className="btn small danger" onClick={deleteOrderAdmin} style={{ marginTop: 10 }}>刪除這張訂單</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSection === "orders" && currentRole === "owner" && (
+            <div className="auth-card">
+              <h3>取消訂單審核</h3>
+              {cancelRequests.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有待審核的取消申請</div>}
+              {cancelRequests.map((r) => (
+                <div key={r.orderNo} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{r.planName}　<span style={{ fontWeight: 400, color: "#8A8779", fontSize: 12 }}>訂單編號 {r.orderNo}</span></div>
+                  <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>
+                    帳號：{r.username}　交易方式：{r.payment}　合計 NT$ {r.total}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>
+                    申請時間：{new Date(r.cancelRequestedAt).toLocaleString("zh-TW")}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn small danger" onClick={() => approveCancelRequest(r.orderNo)}>核准（刪除訂單）</button>
+                    <button className="btn small secondary" onClick={() => rejectCancelRequest(r.orderNo)}>拒絕（維持有效）</button>
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontSize: 13, marginTop: 6 }}>{cancelRequestsMsg}</div>
+            </div>
           )}
 
           {activeSection === "codes" && currentRole === "owner" && (

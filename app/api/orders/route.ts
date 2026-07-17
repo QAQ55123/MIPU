@@ -36,13 +36,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `此企劃已截止，無法新增訂單。` }, { status: 400 });
   }
 
-  // 價目表對照（避免前端竄改價格）
+  // 價目表對照（避免前端竄改價格），順便記錄圖片快照
   const { data: products } = await supabase.from("products").select("*").eq("plan_id", planId);
   const priceMap: Record<string, number> = {};
-  (products || []).forEach((p) => { priceMap[`${p.name}||${p.style || ""}`] = Number(p.price); });
+  const imageMap: Record<string, string | null> = {};
+  (products || []).forEach((p) => {
+    priceMap[`${p.name}||${p.style || ""}`] = Number(p.price);
+    imageMap[`${p.name}||${p.style || ""}`] = p.image_url || null;
+  });
 
   let orderTotal = 0;
-  const rows: { name: string; style: string; qty: number; unit: number; subtotal: number }[] = [];
+  const rows: { name: string; style: string; qty: number; unit: number; subtotal: number; imageUrl: string | null }[] = [];
   for (const it of items) {
     const qty = Number(it.qty) || 0;
     if (qty <= 0) continue;
@@ -50,7 +54,7 @@ export async function POST(req: Request) {
     const unit = priceMap[`${it.name}||${style}`] ?? 0;
     const subtotal = qty * unit;
     orderTotal += subtotal;
-    rows.push({ name: it.name, style, qty, unit, subtotal });
+    rows.push({ name: it.name, style, qty, unit, subtotal, imageUrl: imageMap[`${it.name}||${style}`] ?? null });
   }
   if (rows.length === 0) return NextResponse.json({ error: "請至少選擇一項商品的數量" }, { status: 400 });
 
@@ -65,20 +69,30 @@ export async function POST(req: Request) {
     }
   }
 
-  const orderNo = genOrderNo();
-  const { data: order, error: orderErr } = await supabase
-    .from("orders")
-    .insert({
-      order_no: orderNo,
-      plan_id: planId,
-      plan_name_snapshot: plan.name,
-      username: member.username,
-      profile_url: member.profile_url,
-      payment,
-    })
-    .select()
-    .single();
-  if (orderErr) return NextResponse.json({ error: orderErr.message }, { status: 500 });
+  let order: any = null;
+  let orderErr: any = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const orderNo = genOrderNo();
+    const result = await supabase
+      .from("orders")
+      .insert({
+        order_no: orderNo,
+        plan_id: planId,
+        plan_name_snapshot: plan.name,
+        username: member.username,
+        profile_url: member.profile_url,
+        payment,
+      })
+      .select()
+      .single();
+    if (!result.error) {
+      order = result.data;
+      break;
+    }
+    orderErr = result.error;
+    if (!result.error.message.includes("duplicate")) break; // 不是編號碰撞造成的錯誤就不用重試
+  }
+  if (!order) return NextResponse.json({ error: orderErr?.message || "訂單編號產生失敗，請再試一次" }, { status: 500 });
 
   const itemRows = rows.map((r) => ({
     order_id: order.id,
@@ -87,6 +101,7 @@ export async function POST(req: Request) {
     qty: r.qty,
     unit_price: r.unit,
     subtotal: r.subtotal,
+    image_url: r.imageUrl,
   }));
   const { error: itemsErr } = await supabase.from("order_items").insert(itemRows);
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
@@ -99,7 +114,7 @@ export async function POST(req: Request) {
         title: "🛒 有人喊單了！",
         color: 3447003,
         fields: [
-          { name: "訂單編號", value: orderNo, inline: true },
+          { name: "訂單編號", value: order.order_no, inline: true },
           { name: "交易方式", value: payment, inline: true },
           { name: "帳號", value: member.username, inline: true },
           { name: "企劃", value: plan.name, inline: true },
@@ -112,7 +127,7 @@ export async function POST(req: Request) {
     ],
   });
 
-  return NextResponse.json({ ok: true, orderNo, count: rows.length, total: orderTotal });
+  return NextResponse.json({ ok: true, orderNo: order.order_no, count: rows.length, total: orderTotal });
 }
 
 /** 查詢歷史訂單：?username=... */
@@ -124,7 +139,7 @@ export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
   const { data: orders, error } = await supabase
     .from("orders")
-    .select("*, plans(name, image_url), order_items(*)")
+    .select("*, plans(name, image_url, deadline), order_items(*)")
     .ilike("username", username)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -138,12 +153,15 @@ export async function GET(req: Request) {
       payment: o.payment,
       paidStatus: o.paid_status,
       createdAt: o.created_at,
+      cancelRequested: !!o.cancel_requested_at,
+      planClosed: o.plans?.deadline ? new Date(o.plans.deadline).getTime() < Date.now() : false,
       items: (o.order_items || []).map((it: any) => ({
         name: it.product_name,
         style: it.style,
         qty: it.qty,
         unitPrice: Number(it.unit_price),
         subtotal: Number(it.subtotal),
+        imageUrl: it.image_url,
       })),
       total: (o.order_items || []).reduce((s: number, it: any) => s + Number(it.subtotal), 0),
     })),
