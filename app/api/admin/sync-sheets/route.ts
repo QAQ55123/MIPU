@@ -11,13 +11,13 @@ export async function POST(req: Request) {
 
   const failed: string[] = [];
 
-  // 會員／企劃／商品彼此獨立，可以同時做
+  // 會員／企劃彼此獨立，可以同時做；「商品」這裡其實是順便清掉舊版留下的多餘分頁
   const independent = await Promise.allSettled([
     { label: "會員", fn: syncMembersSheet },
     { label: "企劃", fn: syncPlansSheet },
-    { label: "商品", fn: syncProductsSheet },
+    { label: "清理舊分頁", fn: syncProductsSheet },
   ].map((t) => t.fn()));
-  ["會員", "企劃", "商品"].forEach((label, i) => {
+  ["會員", "企劃", "清理舊分頁"].forEach((label, i) => {
     const r = independent[i];
     if (r.status === "rejected") failed.push(`${label}：${(r as PromiseRejectedResult).reason?.message || "同步失敗"}`);
   });

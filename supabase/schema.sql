@@ -108,6 +108,7 @@ create table if not exists orders (
   profile_url        text not null,               -- 下單當時的個人頁網址快照
   payment            text not null,               -- 匯款 / 取付
   paid_status        text default '',             -- 空 / 已付款 等
+  paid_amount        numeric default 0,           -- 已收金額（管理者在後台填寫，會同步顯示在會員的訂單頁面，也會同步到 Google Sheet 的付款狀態欄）
   cancel_requested_at timestamptz,                 -- 使用者申請取消訂單的時間，要等最高管理者審核（核准＝刪除、拒絕＝清空這個欄位）
   created_at         timestamptz default now(),
   updated_at         timestamptz default now()

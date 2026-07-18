@@ -136,6 +136,18 @@ export async function hideSheetTab(sheets: SheetsClient, spreadsheetId: string, 
   });
 }
 
+/** 刪除指定名稱的分頁（如果存在的話；不存在就什麼都不做，安全可以重複呼叫） */
+export async function deleteSheetTabIfExists(spreadsheetId: string, sheetName: string) {
+  const sheets = await getSheets();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const target = (meta.data.sheets || []).find((s) => s.properties?.title === sheetName);
+  if (!target || target.properties?.sheetId == null) return;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ deleteSheet: { sheetId: target.properties.sheetId } }] },
+  });
+}
+
 /** 讀取一個範圍的「值」跟「公式」（公式儲存格會回傳公式字串，其餘回傳計算後的值） */
 export async function getValuesAndFormulas(sheets: SheetsClient, spreadsheetId: string, range: string) {
   const [valuesRes, formulasRes] = await Promise.all([

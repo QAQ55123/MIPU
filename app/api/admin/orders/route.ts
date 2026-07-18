@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession, requireOwnerSession } from "@/lib/adminAuth";
+import { syncOrderToSheet } from "@/lib/sheetsSync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
       planName: order.plan_name_snapshot || order.plans?.name || "（企劃已刪除）",
       payment: order.payment,
       paidStatus: order.paid_status,
+      paidAmount: Number(order.paid_amount) || 0,
       createdAt: order.created_at,
       items: (order.order_items || []).map((it: any) => ({
         name: it.product_name,
@@ -51,6 +53,41 @@ export async function GET(req: Request) {
       total: (order.order_items || []).reduce((s: number, it: any) => s + Number(it.subtotal), 0),
     },
   });
+}
+
+/** 填寫已收金額（僅限最高權限）body: { orderNo, paidAmount }，會一併觸發同步到 Sheet 的付款狀態欄 */
+export async function PATCH(req: Request) {
+  try {
+    requireAdminSession(req);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 401 });
+  }
+  try {
+    requireOwnerSession(req);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 403 });
+  }
+
+  const body = await req.json();
+  const orderNo = String(body.orderNo || "").trim();
+  const paidAmount = Number(body.paidAmount);
+  if (!orderNo) return NextResponse.json({ error: "缺少訂單編號" }, { status: 400 });
+  if (!Number.isFinite(paidAmount) || paidAmount < 0) return NextResponse.json({ error: "已收金額格式不正確" }, { status: 400 });
+
+  const supabase = getSupabaseAdmin();
+  const { data: order } = await supabase.from("orders").select("id, plan_id, plans(name)").eq("order_no", orderNo).maybeSingle();
+  if (!order) return NextResponse.json({ error: "找不到這張訂單" }, { status: 404 });
+
+  const { error } = await supabase.from("orders").update({ paid_amount: paidAmount }).eq("id", order.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // 同步這筆訂單所屬企劃的 Sheet（讓付款狀態欄馬上更新）；失敗不擋這次操作，錯誤只記在伺服器 log
+  const planName = (order as any).plans?.name;
+  if (order.plan_id && planName) {
+    syncOrderToSheet({ planId: order.plan_id, planName }).catch(() => {});
+  }
+
+  return NextResponse.json({ ok: true });
 }
 
 /** 刪除訂單（僅限最高權限）body: { orderNo } */

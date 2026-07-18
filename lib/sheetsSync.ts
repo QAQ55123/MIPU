@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "./supabase";
-import { overwriteSheet } from "./googleSheets";
-import { syncOrderRealtimeToPlanTab, syncAllPlanOrderTabs, syncCostWorkbook } from "./planSheetSync";
+import { overwriteSheet, deleteSheetTabIfExists, requireSheetId } from "./googleSheets";
+import { syncOrderRealtimeToPlanTab, syncAllPlanOrderTabs, syncCostWorkbook, syncOnePlanCostTab } from "./planSheetSync";
 
 /** 訂單建立當下即時同步（呼叫端是客人下單流程，這裡「刻意」吞掉錯誤，
  *  Sheet 同步失敗不該讓客人沒辦法下單；真正的失敗原因會印在伺服器 log 裡，
@@ -10,6 +10,12 @@ export async function syncOrderToSheet(params: { planId: string; planName: strin
     await syncOrderRealtimeToPlanTab(params.planId, params.planName);
   } catch (e) {
     console.error("Google Sheet 訂單同步失敗：", e);
+    return; // 訂單分頁都沒同步成功，成本表也不用試了（成本表是讀訂單分頁內容統計的）
+  }
+  try {
+    await syncOnePlanCostTab(params.planId, params.planName);
+  } catch (e) {
+    console.error("Google Sheet 成本表同步失敗：", e);
   }
 }
 
@@ -53,10 +59,9 @@ export async function syncPlansSheet() {
   await overwriteSheet("企劃", ["企劃名稱", "分類", "截止時間", "取付上限", "企劃狀態", "建立時間"], rows);
 }
 
-/** 商品資料同上，整份重寫 */
+/** 「商品」這個分頁已經不需要了，因為每個企劃自己的分頁裡最上面就有一份商品目錄了，
+ *  這裡改成單純確保這個舊分頁被刪掉（不存在的話什麼都不會發生，安全可以重複執行） */
 export async function syncProductsSheet() {
-  const supabase = getSupabaseAdmin();
-  const { data } = await supabase.from("products").select("*, plans(name)").order("sort_order", { ascending: true });
-  const rows = (data || []).map((p) => [p.plans?.name || "（企劃已刪除）", p.name, p.style || "", Number(p.price) || 0]);
-  await overwriteSheet("商品", ["所屬企劃", "商品名稱", "款式", "價格"], rows);
+  const id = requireSheetId();
+  await deleteSheetTabIfExists(id, "商品");
 }

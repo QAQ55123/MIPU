@@ -1325,6 +1325,12 @@ export default function Home() {
                             </div>
                           ))}
                           <div className="hist-total">交易方式：{o.payment}　合計 NT$ {fmt(o.total)}</div>
+                          {o.paidAmount > 0 && (
+                            <div className="hist-paid-confirm">
+                              ✓ 已確認收到您的款項 NT$ {fmt(o.paidAmount)}
+                              {o.paidAmount < o.total && `（尚欠 NT$ ${fmt(o.total - o.paidAmount)}）`}
+                            </div>
+                          )}
                           <div className="hist-actions">
                             {o.cancelRequested ? (
                               <span className="hist-cancel-badge">取消審核中，請等待管理者確認</span>

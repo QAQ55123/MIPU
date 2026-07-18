@@ -44,7 +44,8 @@ function safeTabName(name: string): string {
 // 一、「訂單」同步：主試算表裡，每個企劃各一個分頁（商品目錄 + 訂單明細），比照原系統版面
 // ==================================================================================
 
-/** 同步單一企劃的訂單分頁（商品目錄永遠重新寫入；已存在的訂單列保留「付款狀態」欄的手動內容，不會被洗掉） */
+/** 同步單一企劃的訂單分頁（商品目錄跟訂單明細每次都用資料庫最新資料重寫；
+ *  「付款狀態」欄現在是從後台「訂單管理」填寫的已收金額為準，直接寫入，不再從表格讀舊值） */
 export async function syncOnePlanOrderTab(planId: string, planName: string) {
   const id = requireSheetId();
   const tabName = safeTabName(planName);
@@ -52,29 +53,15 @@ export async function syncOnePlanOrderTab(planId: string, planName: string) {
 
   const [products, orders] = await Promise.all([getPlanProducts(planId), getPlanOrders(planId)]);
 
-  // 讀取目前分頁內容，找出「訂單明細表頭」那一列，把已經存在的訂單列（含手動填的付款狀態）保留下來
-  const { values: existingValues } = await getValuesAndFormulas(sheets, id, `${tabName}!A1:L100000`);
-  let existingHeaderRow = -1;
-  for (let i = 0; i < existingValues.length; i++) {
-    if (String(existingValues[i]?.[0] || "").trim() === ORDER_HEADER[0]) { existingHeaderRow = i; break; }
-  }
-  const existingOrderRows: any[][] = existingHeaderRow >= 0 ? existingValues.slice(existingHeaderRow + 1) : [];
-  const preservedPaidStatusByOrderItem = new Map<string, any>(); // key: 訂單編號|商品名稱|款式 -> 付款狀態
-  existingOrderRows.forEach((r) => {
-    const key = `${r[0] || ""}|${r[4] || ""}|${r[5] || ""}`;
-    if (r[11] !== undefined && r[11] !== "") preservedPaidStatusByOrderItem.set(key, r[11]);
-  });
-
   // 組「商品目錄」區塊
   const catalogRows = products.map((p: any) => [p.name, p.style || "", Number(p.price) || 0, p.image_url || ""]);
   const catalogBlock = [CATALOG_HEADER, ...catalogRows];
 
-  // 組「訂單明細」區塊（保留手動填過的付款狀態）
+  // 組「訂單明細」區塊（付款狀態＝後台填寫的已收金額，同一張訂單的每個品項都顯示一樣的已收金額）
   const orderRows: (string | number)[][] = [];
   orders.forEach((o: any) => {
+    const paidAmount = Number(o.paid_amount) || 0;
     (o.order_items || []).forEach((it: any) => {
-      const key = `${o.order_no}|${it.product_name}|${it.style || ""}`;
-      const preserved = preservedPaidStatusByOrderItem.get(key);
       orderRows.push([
         o.order_no,
         "", // 來源：現在系統統一帳號制，沒有這個概念，留空
@@ -87,7 +74,7 @@ export async function syncOnePlanOrderTab(planId: string, planName: string) {
         Number(it.subtotal) || 0,
         new Date(o.created_at).toLocaleString("zh-TW"),
         o.payment,
-        preserved !== undefined ? preserved : "",
+        paidAmount > 0 ? paidAmount : "",
       ]);
     });
   });
@@ -242,7 +229,8 @@ async function updateCostTab(costId: string, planTab: string, agg: Aggregated) {
   data.push(["其他", "", otherVal, "", "", "", ""]);
   data.push(["淨利潤", "", `=IF(C${incomeRow}="","",C${incomeRow}-C${costRow}+IF(C${otherRow}="",0,C${otherRow}))`, "", "", "", ""]);
 
-  // 隱藏明細分頁：放每位客戶的各商品數量，讓「客戶商品重量/小計」用公式即時算
+  // 隱藏明細分頁：放每位客戶的各商品數量，讓「客戶商品重量/小計」用公式即時算，
+  // 手改包裹總重/每公斤價格/內陸運費會馬上反映在客戶應收運費，不用等重新同步
   const customers = (agg.customers || []).slice().sort((a, b) => (a.display < b.display ? -1 : 1));
   const nCust = customers.length;
   const detailName = `_${planTab}_明細`;
@@ -309,8 +297,52 @@ async function buildCostSummary(costId: string, rows: { name: string; tab: strin
   if (n > 0) await boldRange(sheets, costId, sheetId, n + 1, n + 2, 0, 4);
 }
 
+/** 即時同步用：只新增/更新「這一個」企劃在總覽裡的那一列，不用重新整份重建，
+ *  這樣新企劃第一次同步、或商品數量變動導致列號改變，都會馬上反映在總覽裡，不用等手動完整同步 */
+async function upsertPlanInSummary(costId: string, planName: string, tabName: string, N: number) {
+  const sheets = await getSheets();
+  const { sheetId } = await ensureSheetExists(costId, "總覽", 0);
+  const { values } = await getValuesAndFormulas(sheets, costId, `總覽!A1:D100000`);
+
+  const incomeRow = N + 12, costRow = N + 13, profitRow = N + 15;
+  const ref = `'${tabName.replace(/'/g, "''")}'!C`;
+  const newRow: (string | number)[] = [planName, `=${ref}${incomeRow}`, `=${ref}${costRow}`, `=${ref}${profitRow}`];
+
+  let dataRows = values.slice(1); // 跳過標題列
+  const hasTotal = dataRows.length > 0 && String(dataRows[dataRows.length - 1]?.[0] || "").trim() === "合計";
+  if (hasTotal) dataRows = dataRows.slice(0, -1);
+
+  const idx = dataRows.findIndex((r) => String(r[0] || "").trim() === planName);
+  if (idx >= 0) dataRows[idx] = newRow;
+  else dataRows.push(newRow);
+
+  const n = dataRows.length;
+  const finalRows: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤"], ...dataRows];
+  if (n > 0) {
+    const first = 2, last = 1 + n;
+    finalRows.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`]);
+  }
+
+  await clearRange(sheets, costId, `總覽!A1:D100000`);
+  await writeRange(sheets, costId, `總覽!A1`, finalRows);
+  await boldRange(sheets, costId, sheetId, 0, 1, 0, 4);
+  if (n > 0) await boldRange(sheets, costId, sheetId, n + 1, n + 2, 0, 4);
+}
+
 /** 刷新所有企劃的成本表（給手動「立即完整同步一次」用；也可以之後排程呼叫）
  *  注意：要先確保「訂單」分頁已經同步過，這裡會直接讀取主試算表裡每個企劃分頁的內容來統計 */
+/** 刷新「單一」企劃的成本分頁（下單當下即時呼叫用，只更新這一個企劃，速度快；
+ *  同時也會把這個企劃在「總覽」裡的那一列一併新增/更新好，新企劃第一次同步也會馬上出現，不用等手動完整同步） */
+export async function syncOnePlanCostTab(planId: string, planName: string) {
+  const costId = requireCostSheetId();
+  const tabName = safeTabName(planName);
+  const agg = await aggregatePlanFromSheet(tabName);
+  if (agg.products.length === 0) return; // 這個企劃還沒有商品，略過
+  await updateCostTab(costId, tabName, agg);
+  await upsertPlanInSummary(costId, planName, tabName, agg.products.length);
+}
+
+/** 刷新「所有」企劃的成本表（給手動「立即完整同步一次」用；也會重建「總覽」分頁） */
 export async function syncCostWorkbook() {
   const costId = requireCostSheetId();
   const plans = await getAllPlans();

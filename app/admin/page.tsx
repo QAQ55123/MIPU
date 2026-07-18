@@ -74,6 +74,8 @@ export default function AdminPage() {
   const [memberNewProfileUrl, setMemberNewProfileUrl] = useState("");
   const [orderLookupNo, setOrderLookupNo] = useState("");
   const [orderLookupResult, setOrderLookupResult] = useState<any>(null);
+  const [orderPaidAmountInput, setOrderPaidAmountInput] = useState("");
+  const [savingPaidAmount, setSavingPaidAmount] = useState(false);
   const [orderLookupMsg, setOrderLookupMsg] = useState("");
   const [cancelRequests, setCancelRequests] = useState<any[]>([]);
   const [staffAdmins, setStaffAdmins] = useState<any[]>([]);
@@ -613,8 +615,25 @@ export default function AdminPage() {
       const d = await r.json();
       if (!r.ok) return setOrderLookupMsg(d.error || "查詢失敗");
       setOrderLookupResult(d.order);
+      setOrderPaidAmountInput(String(d.order.paidAmount || 0));
     } catch {
       setOrderLookupMsg("網路連線失敗");
+    }
+  }
+
+  async function savePaidAmount() {
+    if (!orderLookupResult) return;
+    const amount = Number(orderPaidAmountInput);
+    if (!Number.isFinite(amount) || amount < 0) return setOrderLookupMsg("已收金額請輸入正確的數字");
+    setSavingPaidAmount(true);
+    try {
+      await callJson("/api/admin/orders", "PATCH", { orderNo: orderLookupResult.orderNo, paidAmount: amount });
+      setOrderLookupResult((prev: any) => ({ ...prev, paidAmount: amount }));
+      setOrderLookupMsg("已收金額已更新，也會同步到 Google Sheet 的付款狀態欄。");
+    } catch (e: any) {
+      setOrderLookupMsg("失敗：" + e.message);
+    } finally {
+      setSavingPaidAmount(false);
     }
   }
 
@@ -1230,6 +1249,14 @@ export default function AdminPage() {
                     </div>
                   ))}
                   <div style={{ textAlign: "right", fontWeight: 600, marginTop: 8 }}>合計 NT$ {orderLookupResult.total}</div>
+
+                  <div className="id-row" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #EDE9DC" }}>
+                    <span className="id-label">已收金額</span>
+                    <input type="number" min={0} value={orderPaidAmountInput} onChange={(e) => setOrderPaidAmountInput(e.target.value)} style={{ maxWidth: 140 }} />
+                    <button className="btn small" onClick={savePaidAmount} disabled={savingPaidAmount}>{savingPaidAmount ? "儲存中…" : "更新"}</button>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#8A8779" }}>填寫後會同步顯示在 Google Sheet 的付款狀態欄，也會讓使用者在自己的歷史訂單裡看到已收款確認。</div>
+
                   {currentRole === "owner" && (
                     <button className="btn small danger" onClick={deleteOrderAdmin} style={{ marginTop: 10 }}>刪除這張訂單</button>
                   )}

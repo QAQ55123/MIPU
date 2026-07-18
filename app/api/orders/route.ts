@@ -158,6 +158,7 @@ export async function GET(req: Request) {
       username: o.username,
       payment: o.payment,
       paidStatus: o.paid_status,
+      paidAmount: Number(o.paid_amount) || 0,
       createdAt: o.created_at,
       cancelRequested: !!o.cancel_requested_at,
       planClosed: o.plans?.deadline ? new Date(o.plans.deadline).getTime() < Date.now() : false,
