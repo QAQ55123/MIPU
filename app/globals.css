@@ -101,9 +101,10 @@ html, body {
 .hist-card { background: #f8fafc; border: 1px solid var(--line); border-left: 4px solid var(--primary); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
 .hist-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: nowrap; }
 .hist-toggle-icon { color: var(--muted); flex: 0 0 auto; margin-left: auto; margin-top: 2px; }
-.hist-src { font-size: 15px; font-weight: 600; color: var(--primary-d); display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.hist-src { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-width: 0; }
 .hist-meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.hist-order-no { font-size: 12px; font-weight: 400; color: var(--muted); }
+.hist-order-no { font-size: 17px; font-weight: 700; color: var(--primary-d); }
+.hist-plan-name { font-size: 13px; font-weight: 400; color: var(--muted); }
 .hist-status-badge {
   display: inline-block; font-size: 11px; font-weight: 600; color: #fff;
   border-radius: 999px; padding: 2px 10px;

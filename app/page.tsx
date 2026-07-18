@@ -1304,7 +1304,7 @@ export default function Home() {
                               </span>
                             )}
                           </span>
-                          {o.planName}
+                          <span className="hist-plan-name">{o.planName}</span>
                         </span>
                         <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
                         <ChevronDown size={22} className="hist-toggle-icon" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />

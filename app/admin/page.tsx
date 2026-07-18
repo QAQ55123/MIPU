@@ -789,9 +789,9 @@ export default function AdminPage() {
           <div className={`account-nav-item ${activeSection === "account" ? "active" : ""}`} onClick={() => setActiveSection("account")}>帳號設定</div>
           <div className={`account-nav-item ${activeSection === "categories" ? "active" : ""}`} onClick={() => setActiveSection("categories")}>分類管理</div>
           <div className={`account-nav-item ${activeSection === "plans" ? "active" : ""}`} onClick={() => setActiveSection("plans")}>企劃管理</div>
-          <div className={`account-nav-item ${activeSection === "orders" ? "active" : ""}`} onClick={() => setActiveSection("orders")}>訂單管理</div>
           {currentRole === "owner" && (
             <>
+              <div className={`account-nav-item ${activeSection === "orders" ? "active" : ""}`} onClick={() => setActiveSection("orders")}>訂單管理</div>
               <div className={`account-nav-item ${activeSection === "members" ? "active" : ""}`} onClick={() => setActiveSection("members")}>會員管理</div>
               <div className={`account-nav-item ${activeSection === "codes" ? "active" : ""}`} onClick={() => setActiveSection("codes")}>邀請碼管理</div>
             </>
@@ -1204,7 +1204,7 @@ export default function AdminPage() {
             </>
           )}
 
-          {activeSection === "orders" && (
+          {activeSection === "orders" && currentRole === "owner" && (
             <div className="auth-card">
               <h3>訂單管理</h3>
               <div className="id-row">
