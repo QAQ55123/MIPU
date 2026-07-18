@@ -98,30 +98,23 @@ html, body {
 .banner { padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 14px; }
 .banner.warn { background: #fef9c3; color: #854d0e; }
 
-.hist-card {
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-  padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(44,44,42,.05);
-}
-.hist-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
-.hist-toggle-icon {
-  color: var(--muted); flex: 0 0 auto; margin-left: auto;
-  width: 30px; height: 30px; border-radius: 999px; background: var(--bg);
-  display: flex; align-items: center; justify-content: center;
-}
-.hist-src { font-size: 16px; font-weight: 700; color: var(--text); display: flex; flex-direction: column; gap: 6px; }
+.hist-card { background: #f8fafc; border: 1px solid var(--line); border-left: 4px solid var(--primary); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+.hist-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: nowrap; }
+.hist-toggle-icon { color: var(--muted); flex: 0 0 auto; margin-left: auto; margin-top: 2px; }
+.hist-src { font-size: 15px; font-weight: 600; color: var(--primary-d); display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-width: 0; }
 .hist-meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.hist-order-no { font-size: 12px; font-weight: 400; color: var(--muted); font-family: monospace; }
+.hist-order-no { font-size: 12px; font-weight: 400; color: var(--muted); }
 .hist-status-badge {
-  display: inline-block; font-size: 11px; font-weight: 700; color: #fff;
-  border-radius: 999px; padding: 3px 12px; letter-spacing: .3px;
+  display: inline-block; font-size: 11px; font-weight: 600; color: #fff;
+  border-radius: 999px; padding: 2px 10px;
 }
-.hist-time { font-size: 12px; color: var(--muted); background: var(--bg); border-radius: 999px; padding: 4px 12px; }
-.hist-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 15px; padding: 8px 0; }
-.hist-item-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.hist-item-img { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; flex: 0 0 auto; border: 1px solid var(--line); }
+.hist-time { font-size: 12px; color: var(--muted); margin-top: 2px; flex: 0 0 auto; white-space: nowrap; }
+.hist-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 15px; padding: 6px 0; }
+.hist-item-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.hist-item-img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; border: 1px solid var(--line); }
 .hist-item-img-empty { background: var(--bg); }
-.hist-total { text-align: right; font-size: 15px; font-weight: 700; color: var(--text); margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
-.hist-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.hist-total { text-align: right; font-size: 14px; font-weight: 600; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.hist-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .hist-cancel-badge { font-size: 12px; color: #B08E5A; background: #FDF6EC; border-radius: 999px; padding: 4px 12px; }
 
 /* ---- 新版頂欄 ---- */

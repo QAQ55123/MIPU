@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { requireAdminSession } from "@/lib/adminAuth";
+import { requireAdminSession, requireOwnerSession } from "@/lib/adminAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -48,12 +48,17 @@ export async function GET(req: Request) {
   });
 }
 
-/** 刪除訂單 body: { orderNo } */
+/** 刪除訂單（僅限最高權限）body: { orderNo } */
 export async function DELETE(req: Request) {
   try {
-    requireAdminSession(req);
+    requireAdminSession(req); // 先確認有登入
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });
+  }
+  try {
+    requireOwnerSession(req); // 再確認是最高權限，權限不足跟登入過期要分開，不然一般管理者會被誤判成登入過期而登出
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 403 });
   }
 
   const body = await req.json();

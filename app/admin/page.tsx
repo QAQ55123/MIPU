@@ -1230,7 +1230,9 @@ export default function AdminPage() {
                     </div>
                   ))}
                   <div style={{ textAlign: "right", fontWeight: 600, marginTop: 8 }}>合計 NT$ {orderLookupResult.total}</div>
-                  <button className="btn small danger" onClick={deleteOrderAdmin} style={{ marginTop: 10 }}>刪除這張訂單</button>
+                  {currentRole === "owner" && (
+                    <button className="btn small danger" onClick={deleteOrderAdmin} style={{ marginTop: 10 }}>刪除這張訂單</button>
+                  )}
                 </div>
               )}
             </div>
