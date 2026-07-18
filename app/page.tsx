@@ -1328,7 +1328,6 @@ export default function Home() {
                           {o.paidAmount > 0 && (
                             <div className="hist-paid-confirm">
                               ✓ 已確認收到您的款項 NT$ {fmt(o.paidAmount)}
-                              {o.paidAmount < o.total && `（尚欠 NT$ ${fmt(o.total - o.paidAmount)}）`}
                             </div>
                           )}
                           <div className="hist-actions">

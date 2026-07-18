@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession, requireOwnerSession } from "@/lib/adminAuth";
-import { syncOrderToSheet } from "@/lib/sheetsSync";
+import { syncOrderRealtimeToPlanTab, syncOnePlanCostTab } from "@/lib/planSheetSync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -81,13 +81,20 @@ export async function PATCH(req: Request) {
   const { error } = await supabase.from("orders").update({ paid_amount: paidAmount }).eq("id", order.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // 同步這筆訂單所屬企劃的 Sheet（讓付款狀態欄馬上更新）；失敗不擋這次操作，錯誤只記在伺服器 log
+  // 同步這筆訂單所屬企劃的 Sheet（讓付款狀態欄跟成本表的「已收」馬上更新）
+  // 這裡「不」吞掉錯誤：這是管理者主動的操作，同步失敗要讓管理者知道，不能默默失敗
   const planName = (order as any).plans?.name;
+  let syncWarning = "";
   if (order.plan_id && planName) {
-    syncOrderToSheet({ planId: order.plan_id, planName }).catch(() => {});
+    try {
+      await syncOrderRealtimeToPlanTab(order.plan_id, planName);
+      await syncOnePlanCostTab(order.plan_id, planName);
+    } catch (e: any) {
+      syncWarning = "已收金額已存檔，但同步到 Google Sheet 失敗：" + (e?.message || "未知錯誤");
+    }
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, syncWarning: syncWarning || undefined });
 }
 
 /** 刪除訂單（僅限最高權限）body: { orderNo } */
@@ -108,11 +115,23 @@ export async function DELETE(req: Request) {
   if (!orderNo) return NextResponse.json({ error: "請輸入訂單編號" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { data: order } = await supabase.from("orders").select("id").eq("order_no", orderNo).maybeSingle();
+  const { data: order } = await supabase.from("orders").select("id, plan_id, plans(name)").eq("order_no", orderNo).maybeSingle();
   if (!order) return NextResponse.json({ error: "找不到這張訂單" }, { status: 404 });
 
   const { error } = await supabase.from("orders").delete().eq("id", order.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true });
+  // 訂單真的刪掉之後，重新同步該企劃的分頁，讓 Sheet 上對應的那幾列也跟著消失
+  const planName = (order as any).plans?.name;
+  let syncWarning = "";
+  if (order.plan_id && planName) {
+    try {
+      await syncOrderRealtimeToPlanTab(order.plan_id, planName);
+      await syncOnePlanCostTab(order.plan_id, planName);
+    } catch (e: any) {
+      syncWarning = "訂單已刪除，但同步到 Google Sheet 失敗：" + (e?.message || "未知錯誤");
+    }
+  }
+
+  return NextResponse.json({ ok: true, syncWarning: syncWarning || undefined });
 }

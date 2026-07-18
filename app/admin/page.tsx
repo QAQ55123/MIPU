@@ -627,9 +627,9 @@ export default function AdminPage() {
     if (!Number.isFinite(amount) || amount < 0) return setOrderLookupMsg("已收金額請輸入正確的數字");
     setSavingPaidAmount(true);
     try {
-      await callJson("/api/admin/orders", "PATCH", { orderNo: orderLookupResult.orderNo, paidAmount: amount });
+      const d = await callJson("/api/admin/orders", "PATCH", { orderNo: orderLookupResult.orderNo, paidAmount: amount });
       setOrderLookupResult((prev: any) => ({ ...prev, paidAmount: amount }));
-      setOrderLookupMsg("已收金額已更新，也會同步到 Google Sheet 的付款狀態欄。");
+      setOrderLookupMsg(d.syncWarning || "已收金額已更新，也已同步到 Google Sheet 的付款狀態欄。");
     } catch (e: any) {
       setOrderLookupMsg("失敗：" + e.message);
     } finally {
@@ -642,8 +642,8 @@ export default function AdminPage() {
     if (!confirm(`確定要刪除訂單「${orderLookupResult.orderNo}」嗎？這個動作無法復原。`)) return;
     setOrderLookupMsg("刪除中…");
     try {
-      await callJson("/api/admin/orders", "DELETE", { orderNo: orderLookupResult.orderNo });
-      setOrderLookupMsg("已刪除訂單。");
+      const d = await callJson("/api/admin/orders", "DELETE", { orderNo: orderLookupResult.orderNo });
+      setOrderLookupMsg(d.syncWarning || "已刪除訂單，Sheet 上對應的列也已一併移除。");
       setOrderLookupResult(null);
       setOrderLookupNo("");
     } catch (e: any) {
@@ -665,8 +665,8 @@ export default function AdminPage() {
   async function approveCancelRequest(orderNo: string) {
     setCancelRequestsMsg("處理中…");
     try {
-      await callJson("/api/admin/orders/cancel-requests", "POST", { orderNo });
-      setCancelRequestsMsg("已核准，訂單已刪除。");
+      const d = await callJson("/api/admin/orders/cancel-requests", "POST", { orderNo });
+      setCancelRequestsMsg(d.syncWarning || "已核准，訂單已刪除，Sheet 也已同步更新。");
       loadCancelRequests();
     } catch (e: any) {
       setCancelRequestsMsg("失敗：" + e.message);

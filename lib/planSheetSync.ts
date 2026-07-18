@@ -8,6 +8,17 @@ import {
 const ORDER_HEADER = ["訂單編號", "來源", "暱稱", "FB個人網址", "商品名稱", "款式", "數量", "單價", "小計", "訂單時間", "交易方式", "付款狀態"];
 const CATALOG_HEADER = ["商品名稱", "款式", "單價", "圖片"];
 
+/** 失敗自動重試一次（間隔 800ms），常見的網路小抖動、Google API 短暫逾時可以這樣救回來，
+ *  真的重試後還是失敗，就照常把錯誤丟出去讓呼叫端處理 */
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return await fn();
+  }
+}
+
 /** 從「付款狀態」欄解析出「實收金額」數字（NT$、逗號、空白都容忍；非數字回 0），比照原系統 parsePaidAmount_ */
 function parsePaidAmount(v: any): number {
   const s = String(v == null ? "" : v).trim().replace(/nt\$?/i, "").replace(/[,\s]/g, "");
@@ -102,7 +113,7 @@ export async function syncAllPlanOrderTabs() {
 
 /** 單一新訂單即時同步（客人下單當下呼叫；直接重寫該企劃分頁，資料量不大，這樣做最單純可靠） */
 export async function syncOrderRealtimeToPlanTab(planId: string, planName: string) {
-  await syncOnePlanOrderTab(planId, planName);
+  await withRetry(() => syncOnePlanOrderTab(planId, planName));
 }
 
 // ==================================================================================
@@ -336,10 +347,12 @@ async function upsertPlanInSummary(costId: string, planName: string, tabName: st
 export async function syncOnePlanCostTab(planId: string, planName: string) {
   const costId = requireCostSheetId();
   const tabName = safeTabName(planName);
-  const agg = await aggregatePlanFromSheet(tabName);
-  if (agg.products.length === 0) return; // 這個企劃還沒有商品，略過
-  await updateCostTab(costId, tabName, agg);
-  await upsertPlanInSummary(costId, planName, tabName, agg.products.length);
+  await withRetry(async () => {
+    const agg = await aggregatePlanFromSheet(tabName);
+    if (agg.products.length === 0) return; // 這個企劃還沒有商品，略過
+    await updateCostTab(costId, tabName, agg);
+    await upsertPlanInSummary(costId, planName, tabName, agg.products.length);
+  });
 }
 
 /** 刷新「所有」企劃的成本表（給手動「立即完整同步一次」用；也會重建「總覽」分頁） */
