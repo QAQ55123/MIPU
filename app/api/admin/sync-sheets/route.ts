@@ -9,20 +9,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }
 
-  const tasks: { label: string; fn: () => Promise<void> }[] = [
-    { label: "訂單", fn: syncAllOrdersSheet },
+  const failed: string[] = [];
+
+  // 會員／企劃／商品彼此獨立，可以同時做
+  const independent = await Promise.allSettled([
     { label: "會員", fn: syncMembersSheet },
     { label: "企劃", fn: syncPlansSheet },
     { label: "商品", fn: syncProductsSheet },
-    { label: "成本表", fn: syncAllOrdersCostSheet },
-  ];
+  ].map((t) => t.fn()));
+  ["會員", "企劃", "商品"].forEach((label, i) => {
+    const r = independent[i];
+    if (r.status === "rejected") failed.push(`${label}：${(r as PromiseRejectedResult).reason?.message || "同步失敗"}`);
+  });
 
-  const results = await Promise.allSettled(tasks.map((t) => t.fn()));
+  // 訂單分頁一定要先同步完成，成本表才讀得到正確資料（成本表是直接讀取剛同步好的訂單分頁內容來統計）
+  try {
+    await syncAllOrdersSheet();
+  } catch (e: any) {
+    failed.push(`訂單：${e?.message || "同步失敗"}`);
+  }
 
-  const failed = results
-    .map((r, i) => ({ label: tasks[i].label, result: r }))
-    .filter((x) => x.result.status === "rejected")
-    .map((x) => `${x.label}：${(x.result as PromiseRejectedResult).reason?.message || "同步失敗"}`);
+  try {
+    await syncAllOrdersCostSheet();
+  } catch (e: any) {
+    failed.push(`成本表：${e?.message || "同步失敗"}`);
+  }
 
   if (failed.length > 0) {
     return NextResponse.json({ error: failed.join("；") }, { status: 500 });

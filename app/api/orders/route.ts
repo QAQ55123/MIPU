@@ -129,12 +129,8 @@ export async function POST(req: Request) {
   });
 
   syncOrderToSheet({
-    orderNo: order.order_no,
-    username: member.username,
+    planId: plan.id,
     planName: plan.name,
-    payment,
-    itemsSummary: lines,
-    total: orderTotal,
   }).catch(() => {});
 
   return NextResponse.json({ ok: true, orderNo: order.order_no, count: rows.length, total: orderTotal });
