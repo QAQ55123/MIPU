@@ -75,7 +75,7 @@ async function formatHeader(sheets: SheetsClient, spreadsheetId: string, sheetId
 
 /** 在指定分頁最後面加一列（適合訂單這種「一直新增、不會修改」的資料） */
 export async function appendRow(sheetName: string, headerRow: string[], row: (string | number)[]) {
-  if (!SHEET_ID) return; // 沒設定就靜靜跳過，不影響主要功能
+  if (!SHEET_ID) throw new Error("尚未設定 GOOGLE_SHEET_ID");
   const { sheets, sheetId } = await ensureSheetExists(SHEET_ID, sheetName);
 
   // 檢查有沒有標題列，沒有就先補上（順便套用排版）
@@ -101,7 +101,7 @@ export async function appendRow(sheetName: string, headerRow: string[], row: (st
 
 /** 清空指定分頁、整份重新寫入（適合會員/企劃/商品這種「會被編輯、需要跟資料庫保持一致」的資料） */
 export async function overwriteSheet(sheetName: string, headerRow: string[], rows: (string | number)[][]) {
-  if (!SHEET_ID) return;
+  if (!SHEET_ID) throw new Error("尚未設定 GOOGLE_SHEET_ID");
   const { sheets, sheetId } = await ensureSheetExists(SHEET_ID, sheetName);
 
   await sheets.spreadsheets.values.clear({ spreadsheetId: SHEET_ID, range: `${sheetName}!A1:Z100000` });
@@ -163,7 +163,7 @@ async function ensureCostSummary(sheets: SheetsClient, sheetId: number, lastData
 export async function syncCostRows(
   orders: { orderNo: string; username: string; planName: string; amount: number; paidStatus: string; createdAt: string }[]
 ) {
-  if (!COST_SHEET_ID) return; // 沒設定就靜靜跳過
+  if (!COST_SHEET_ID) throw new Error("尚未設定 GOOGLE_COST_SHEET_ID");
   if (orders.length === 0) return;
 
   const { sheets, sheetId } = await ensureSheetExists(COST_SHEET_ID, COST_SHEET_NAME);

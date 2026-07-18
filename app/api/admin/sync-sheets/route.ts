@@ -9,10 +9,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }
 
-  try {
-    await Promise.all([syncAllOrdersSheet(), syncMembersSheet(), syncPlansSheet(), syncProductsSheet(), syncAllOrdersCostSheet()]);
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || "同步失敗，請確認 Google Sheet 設定是否正確" }, { status: 500 });
+  const tasks: { label: string; fn: () => Promise<void> }[] = [
+    { label: "訂單", fn: syncAllOrdersSheet },
+    { label: "會員", fn: syncMembersSheet },
+    { label: "企劃", fn: syncPlansSheet },
+    { label: "商品", fn: syncProductsSheet },
+    { label: "成本表", fn: syncAllOrdersCostSheet },
+  ];
+
+  const results = await Promise.allSettled(tasks.map((t) => t.fn()));
+
+  const failed = results
+    .map((r, i) => ({ label: tasks[i].label, result: r }))
+    .filter((x) => x.result.status === "rejected")
+    .map((x) => `${x.label}：${(x.result as PromiseRejectedResult).reason?.message || "同步失敗"}`);
+
+  if (failed.length > 0) {
+    return NextResponse.json({ error: failed.join("；") }, { status: 500 });
   }
+  return NextResponse.json({ ok: true });
 }
