@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession } from "@/lib/adminAuth";
 import { deleteStorageFiles } from "@/lib/storage";
+import { syncPlansSheet } from "@/lib/sheetsSync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -77,6 +78,7 @@ export async function POST(req: Request) {
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  syncPlansSheet().catch(() => {});
   return NextResponse.json({ ok: true, plan: data });
 }
 
@@ -120,6 +122,7 @@ export async function PUT(req: Request) {
     if (removedUrls.length > 0) deleteStorageFiles(removedUrls).catch(() => {});
   }
 
+  syncPlansSheet().catch(() => {});
   return NextResponse.json({ ok: true });
 }
 
@@ -149,5 +152,6 @@ export async function DELETE(req: Request) {
 
   deleteStorageFiles(urlsToDelete).catch(() => {});
 
+  syncPlansSheet().catch(() => {});
   return NextResponse.json({ ok: true });
 }

@@ -1294,15 +1294,17 @@ export default function Home() {
                       <div className="hist-head" onClick={() => toggleOrderExpanded(o.orderNo)} style={{ cursor: "pointer" }}>
                         <span className="hist-src">
                           {o.planName}
-                          <span className="hist-order-no">訂單編號 {o.orderNo}</span>
-                          {o.fulfillmentStatus && FULFILLMENT_STATUS_MAP[o.fulfillmentStatus] && (
-                            <span
-                              className="hist-status-badge"
-                              style={{ background: FULFILLMENT_STATUS_MAP[o.fulfillmentStatus].color }}
-                            >
-                              {FULFILLMENT_STATUS_MAP[o.fulfillmentStatus].label}
-                            </span>
-                          )}
+                          <span className="hist-meta-row">
+                            <span className="hist-order-no">訂單編號 {o.orderNo}</span>
+                            {o.fulfillmentStatus && FULFILLMENT_STATUS_MAP[o.fulfillmentStatus] && (
+                              <span
+                                className="hist-status-badge"
+                                style={{ background: FULFILLMENT_STATUS_MAP[o.fulfillmentStatus].color }}
+                              >
+                                {FULFILLMENT_STATUS_MAP[o.fulfillmentStatus].label}
+                              </span>
+                            )}
+                          </span>
                         </span>
                         <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
                         <ChevronDown size={22} className="hist-toggle-icon" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />

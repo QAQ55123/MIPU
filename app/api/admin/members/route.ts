@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireOwnerSession } from "@/lib/adminAuth";
 import { normFb } from "@/lib/util";
+import { syncMembersSheet } from "@/lib/sheetsSync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
     .eq("id", member.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  syncMembersSheet().catch(() => {});
   return NextResponse.json({ ok: true, profileUrl });
 }
 
@@ -82,5 +84,6 @@ export async function DELETE(req: Request) {
   const { error } = await supabase.from("members").delete().eq("id", member.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  syncMembersSheet().catch(() => {});
   return NextResponse.json({ ok: true });
 }

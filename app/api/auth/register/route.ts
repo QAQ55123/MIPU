@@ -4,6 +4,7 @@ import { hashMemberPw, normFb } from "@/lib/util";
 import { sendEmail, verifyEmailContent } from "@/lib/resend";
 import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 import { signMemberSession, memberSessionCookieHeader } from "@/lib/memberAuth";
+import { syncMembersSheet } from "@/lib/sheetsSync";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -72,5 +73,6 @@ export async function POST(req: Request) {
     verifyEmailSent,
   });
   res.headers.set("Set-Cookie", memberSessionCookieHeader(token));
+  syncMembersSheet().catch(() => {});
   return res;
 }

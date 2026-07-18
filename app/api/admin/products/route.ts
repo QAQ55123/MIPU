@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession } from "@/lib/adminAuth";
 import { deleteStorageFiles } from "@/lib/storage";
+import { syncProductsSheet } from "@/lib/sheetsSync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  syncProductsSheet().catch(() => {});
   return NextResponse.json({ ok: true, product: data });
 }
 
@@ -102,6 +104,7 @@ export async function PUT(req: Request) {
     deleteStorageFiles([oldProduct.image_url]).catch(() => {});
   }
 
+  syncProductsSheet().catch(() => {});
   return NextResponse.json({ ok: true });
 }
 
@@ -122,5 +125,6 @@ export async function DELETE(req: Request) {
 
   if (product?.image_url) deleteStorageFiles([product.image_url]).catch(() => {});
 
+  syncProductsSheet().catch(() => {});
   return NextResponse.json({ ok: true });
 }

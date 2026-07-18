@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { genOrderNo, fmtMoney } from "@/lib/util";
 import { notifyDiscord } from "@/lib/discord";
+import { syncOrderToSheet } from "@/lib/sheetsSync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -126,6 +127,15 @@ export async function POST(req: Request) {
       },
     ],
   });
+
+  syncOrderToSheet({
+    orderNo: order.order_no,
+    username: member.username,
+    planName: plan.name,
+    payment,
+    itemsSummary: lines,
+    total: orderTotal,
+  }).catch(() => {});
 
   return NextResponse.json({ ok: true, orderNo: order.order_no, count: rows.length, total: orderTotal });
 }

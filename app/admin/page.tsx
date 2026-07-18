@@ -78,6 +78,8 @@ export default function AdminPage() {
   const [cancelRequests, setCancelRequests] = useState<any[]>([]);
   const [staffAdmins, setStaffAdmins] = useState<any[]>([]);
   const [staffAdminsMsg, setStaffAdminsMsg] = useState("");
+  const [syncingSheets, setSyncingSheets] = useState(false);
+  const [syncSheetsMsg, setSyncSheetsMsg] = useState("");
   const [cancelRequestsMsg, setCancelRequestsMsg] = useState("");
   const [inviteCodes, setInviteCodes] = useState<any[]>([]);
   const [inviteCodesMsg, setInviteCodesMsg] = useState("");
@@ -663,6 +665,19 @@ export default function AdminPage() {
     }
   }
 
+  async function syncAllToSheets() {
+    setSyncSheetsMsg("");
+    setSyncingSheets(true);
+    try {
+      await callJson("/api/admin/sync-sheets", "POST", {});
+      setSyncSheetsMsg("已同步完成。");
+    } catch (e: any) {
+      setSyncSheetsMsg("失敗：" + e.message);
+    } finally {
+      setSyncingSheets(false);
+    }
+  }
+
   async function loadStaffAdmins() {
     try {
       const r = await fetch("/api/admin/staff", { cache: "no-store" });
@@ -833,6 +848,19 @@ export default function AdminPage() {
         <button className="btn" onClick={changeAdminPassword} disabled={savingAdminPw}>{savingAdminPw ? "儲存中…" : "更新密碼"}</button>
         <div style={{ fontSize: 13, marginTop: 6 }}>{adminPwMsg}</div>
       </div>
+
+      {currentRole === "owner" && (
+        <div className="auth-card">
+          <h3>Google Sheet 同步</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            訂單會在下單當下自動加一列進去；會員/企劃/商品資料有變動時也會自動同步整份。這個按鈕是手動觸發一次完整同步，適合剛設定好、或想確保資料一致的時候用。
+          </p>
+          <button className="btn" onClick={syncAllToSheets} disabled={syncingSheets}>
+            {syncingSheets ? "同步中…" : "立即完整同步一次"}
+          </button>
+          <div style={{ fontSize: 13, marginTop: 6 }}>{syncSheetsMsg}</div>
+        </div>
+      )}
             </>
           )}
 
