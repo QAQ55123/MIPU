@@ -1154,6 +1154,7 @@ export default function Home() {
     <>
       {!bannerDismissed && announcements[0] && (
         <div className="mibu-announcement-banner">
+          <span className="mibu-announcement-banner-icon"><Bell size={15} /></span>
           <span className="mibu-announcement-banner-text">{announcements[0].content}</span>
           <button className="mibu-announcement-banner-close" aria-label="關閉公告" onClick={() => setBannerDismissed(true)}>
             <X size={16} />
