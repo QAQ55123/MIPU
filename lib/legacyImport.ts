@@ -58,7 +58,7 @@ function toDirectImageUrl(url: string): string {
   let m = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
   if (!m) m = u.match(/drive\.google\.com\/open\?id=([^&]+)/);
   if (!m) m = u.match(/[?&]id=([^&]+)/);
-  if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
+  if (m && m[1]) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
   return u;
 }
 
