@@ -110,6 +110,8 @@ create table if not exists orders (
   paid_status        text default '',             -- 空 / 已付款 等
   paid_amount        numeric default 0,           -- 已收金額（管理者在後台填寫，會同步顯示在會員的訂單頁面，也會同步到 Google Sheet 的付款狀態欄）
   cancel_requested_at timestamptz,                 -- 使用者申請取消訂單的時間，要等最高管理者審核（核准＝刪除、拒絕＝清空這個欄位）
+  legacy_identity_id uuid,                         -- 舊資料匯入：對應到 legacy_identities 的身份（沒有特別建外鍵，靠程式端維護）
+  legacy_unmatched   boolean not null default false, -- 舊資料匯入時對不到身份名冊，需要後台手動指定擁有者
   created_at         timestamptz default now(),
   updated_at         timestamptz default now()
 );
@@ -144,3 +146,40 @@ create trigger trg_orders_updated_at before update on orders
 insert into storage.buckets (id, name, public)
 values ('product-images', 'product-images', true)
 on conflict (id) do nothing;
+
+-- ============================================================
+-- 舊會員身份整合：身份名冊（跨平台暱稱對照）+ 待處理請求
+-- ============================================================
+
+create table if not exists legacy_identities (
+  id                    uuid primary key default gen_random_uuid(),
+  fb_profile_url        text not null,
+  fb_nickname           text,
+  line_nickname         text,
+  discord_nickname      text,
+  dc_account_name       text,
+  dc_user_id            text,
+  claimed_by_member_id  uuid references members(id) on delete set null,
+  claimed_at            timestamptz,
+  created_at            timestamptz not null default now()
+);
+create index if not exists idx_legacy_identities_fb_nick on legacy_identities (lower(fb_nickname));
+create index if not exists idx_legacy_identities_line_nick on legacy_identities (lower(line_nickname));
+create index if not exists idx_legacy_identities_discord_nick on legacy_identities (lower(discord_nickname));
+create index if not exists idx_legacy_identities_dc_account on legacy_identities (lower(dc_account_name));
+create index if not exists idx_legacy_identities_claimed_by on legacy_identities (claimed_by_member_id);
+
+create table if not exists legacy_claim_requests (
+  id                    uuid primary key default gen_random_uuid(),
+  input_nickname        text not null,
+  contact_note          text,
+  status                text not null default 'pending' check (status in ('pending', 'resolved', 'rejected')),
+  resolved_identity_id  uuid references legacy_identities(id) on delete set null,
+  admin_note            text,
+  created_at            timestamptz not null default now(),
+  resolved_at           timestamptz
+);
+create index if not exists idx_legacy_claim_requests_status on legacy_claim_requests (status);
+
+alter table orders add column if not exists legacy_identity_id uuid;
+create index if not exists idx_orders_legacy_identity on orders (legacy_identity_id);

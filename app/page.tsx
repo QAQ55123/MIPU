@@ -56,7 +56,7 @@ export default function Home() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // identity form state
-  const [authTab, setAuthTab] = useState<"login" | "register">("login");
+  const [authTab, setAuthTab] = useState<"login" | "register" | "legacy">("login");
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [regUsername, setRegUsername] = useState("");
@@ -70,6 +70,20 @@ export default function Home() {
   const [registerVerifyEmailSent, setRegisterVerifyEmailSent] = useState(true);
   const [verifyBannerMsg, setVerifyBannerMsg] = useState("");
   const restoringFromHistoryRef = useRef(false);
+
+  // 舊會員整合 state
+  const [legacyStep, setLegacyStep] = useState<"input" | "confirm" | "form" | "notfound" | "requestSent" | "alreadyRegistered">("input");
+  const [legacyNickname, setLegacyNickname] = useState("");
+  const [legacyCandidates, setLegacyCandidates] = useState<{ id: string; profileUrl: string; nicknames: string[] }[]>([]);
+  const [legacySelectedId, setLegacySelectedId] = useState<string | null>(null);
+  const [legacyUsername, setLegacyUsername] = useState("");
+  const [legacyPassword, setLegacyPassword] = useState("");
+  const [legacyConfirmPassword, setLegacyConfirmPassword] = useState("");
+  const [legacyEmail, setLegacyEmail] = useState("");
+  const [legacyContactNote, setLegacyContactNote] = useState("");
+  const [legacyMsg, setLegacyMsg] = useState("");
+  const [legacySubmitting, setLegacySubmitting] = useState(false);
+  const [legacyClaimedOrders, setLegacyClaimedOrders] = useState(0);
 
   function syncUrl(params: Record<string, string>) {
     if (restoringFromHistoryRef.current) return;
@@ -342,6 +356,101 @@ export default function Home() {
   function continueAfterRegister() {
     setRegisterDone(false);
     if (identity) afterAuthSuccess(identity);
+  }
+
+  function resetLegacyFlow() {
+    setLegacyStep("input");
+    setLegacyNickname("");
+    setLegacyCandidates([]);
+    setLegacySelectedId(null);
+    setLegacyUsername("");
+    setLegacyPassword("");
+    setLegacyConfirmPassword("");
+    setLegacyEmail("");
+    setLegacyContactNote("");
+    setLegacyMsg("");
+  }
+
+  async function onLegacyLookup() {
+    setLegacyMsg("");
+    if (!legacyNickname.trim()) return setLegacyMsg("請輸入暱稱");
+    setLegacySubmitting(true);
+    try {
+      const r = await fetch(`/api/auth/legacy-lookup?nickname=${encodeURIComponent(legacyNickname.trim())}`);
+      const d = await r.json();
+      if (!r.ok) return setLegacyMsg(d.error || "查詢失敗");
+      if (d.alreadyRegistered) { setLegacyStep("alreadyRegistered"); return; }
+      if (!d.found) { setLegacyStep("notfound"); return; }
+      setLegacyCandidates(d.candidates);
+      setLegacySelectedId(d.candidates.length === 1 ? d.candidates[0].id : null);
+      setLegacyStep("confirm");
+    } catch {
+      setLegacyMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLegacySubmitting(false);
+    }
+  }
+
+  function onLegacyConfirmYes() {
+    if (!legacySelectedId) return setLegacyMsg("請先選擇是你的哪一筆資料");
+    setLegacyMsg("");
+    setLegacyUsername(legacyNickname.trim());
+    setLegacyStep("form");
+  }
+
+  async function onLegacyClaim() {
+    setLegacyMsg("");
+    if (!legacySelectedId) return setLegacyMsg("請先選擇你的身份");
+    if (legacyUsername.trim().length < 3) return setLegacyMsg("帳號至少要 3 個字");
+    if (legacyPassword.length < 6) return setLegacyMsg("密碼至少要 6 個字");
+    if (legacyPassword !== legacyConfirmPassword) return setLegacyMsg("兩次輸入的密碼不一樣");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyEmail)) return setLegacyMsg("請輸入有效的 Email");
+    setLegacySubmitting(true);
+    try {
+      const r = await fetch("/api/auth/legacy-claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identityId: legacySelectedId,
+          username: legacyUsername.trim(),
+          password: legacyPassword,
+          confirmPassword: legacyConfirmPassword,
+          email: legacyEmail.trim(),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setLegacyMsg(d.error || "建立失敗");
+      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: null };
+      setIdentity(id);
+      setLegacyClaimedOrders(d.claimedOrders || 0);
+      setRegisterVerifyEmailSent(d.verifyEmailSent !== false);
+      if (d.syncWarning) setVerifyBannerMsg(d.syncWarning);
+      setRegisterDone(true);
+      resetLegacyFlow();
+    } catch {
+      setLegacyMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLegacySubmitting(false);
+    }
+  }
+
+  async function onLegacyClaimRequest() {
+    setLegacyMsg("");
+    setLegacySubmitting(true);
+    try {
+      const r = await fetch("/api/auth/legacy-claim-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: legacyNickname.trim(), contactNote: legacyContactNote.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setLegacyMsg(d.error || "送出失敗");
+      setLegacyStep("requestSent");
+    } catch {
+      setLegacyMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLegacySubmitting(false);
+    }
   }
 
   function afterAuthSuccess(id: Identity) {
@@ -1044,7 +1153,12 @@ export default function Home() {
           <div className="auth-card" style={{ margin: 0, boxShadow: "0 4px 24px rgba(0,0,0,.04)" }}>
             {registerDone ? (
               <div style={{ textAlign: "center" }}>
-                <h2 className="section-title">註冊成功</h2>
+                <h2 className="section-title">{legacyClaimedOrders > 0 ? "帳號整合成功" : "註冊成功"}</h2>
+                {legacyClaimedOrders > 0 && (
+                  <p style={{ color: "#166534", fontSize: 14, marginBottom: 4 }}>
+                    已經幫你把 {legacyClaimedOrders} 筆舊訂單轉移到這個新帳號，之後在「歷史訂單」就能看到。
+                  </p>
+                )}
                 <p style={{ color: "#6B6858", fontSize: 14 }}>
                   {registerVerifyEmailSent
                     ? "我們已經寄了一封驗證信到你的信箱，記得去點連結驗證（如果收件匣沒看到，記得也檢查一下垃圾郵件匣）。"
@@ -1060,9 +1174,10 @@ export default function Home() {
                 {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先登入</div>}
                 {pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先登入</div>}
 
-                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
                   <button className={`src-btn ${authTab === "login" ? "active" : ""}`} onClick={() => { setAuthTab("login"); setAuthMsg(""); }}>登入</button>
                   <button className={`src-btn ${authTab === "register" ? "active" : ""}`} onClick={() => { setAuthTab("register"); setAuthMsg(""); }}>註冊新帳號</button>
+                  <button className={`src-btn ${authTab === "legacy" ? "active" : ""}`} onClick={() => { setAuthTab("legacy"); setAuthMsg(""); resetLegacyFlow(); }}>舊會員整合</button>
                 </div>
 
                 {authTab === "login" ? (
@@ -1082,7 +1197,7 @@ export default function Home() {
                       <a href="/forgot-password" style={{ color: "var(--muted)" }}>忘記密碼？</a>
                     </p>
                   </>
-                ) : (
+                ) : authTab === "register" ? (
                   <>
                     <h2 className="section-title">建立新帳號</h2>
                     <div className="id-row">
@@ -1107,6 +1222,122 @@ export default function Home() {
                     </div>
                     <div className="auth-msg">{authMsg}</div>
                     <button className="btn" onClick={onRegister} disabled={authSubmitting}>{authSubmitting ? "建立中…" : "註冊"}</button>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="section-title">舊會員整合</h2>
+                    <p style={{ color: "#6B6858", fontSize: 13, marginBottom: 14 }}>
+                      這裡是用來整合你以前訂單紀錄用的。如果你以前沒有下單過，直接去「註冊新帳號」就可以了。
+                    </p>
+
+                    {legacyStep === "input" && (
+                      <>
+                        <div className="id-row">
+                          <span className="id-label">暱稱</span>
+                          <input
+                            type="text"
+                            value={legacyNickname}
+                            onChange={(e) => setLegacyNickname(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && onLegacyLookup()}
+                            placeholder="以前用的 FB／LINE／Discord 暱稱，任一個都可以試"
+                          />
+                        </div>
+                        <div className="auth-msg">{legacyMsg}</div>
+                        <button className="btn" onClick={onLegacyLookup} disabled={legacySubmitting}>{legacySubmitting ? "查詢中…" : "查詢"}</button>
+                      </>
+                    )}
+
+                    {legacyStep === "alreadyRegistered" && (
+                      <div>
+                        <p style={{ color: "#6B6858", fontSize: 14 }}>這個帳號已經註冊過了，請直接登入，或使用忘記密碼功能。</p>
+                        <button className="btn" onClick={() => { setAuthTab("login"); resetLegacyFlow(); }}>去登入</button>
+                      </div>
+                    )}
+
+                    {legacyStep === "notfound" && (
+                      <div>
+                        <p style={{ color: "#6B6858", fontSize: 14, marginBottom: 12 }}>
+                          在舊資料裡找不到符合「{legacyNickname}」的紀錄。可能是暱稱打錯字、或是資料還沒有整理進來。
+                          可以按下面的按鈕請管理者協助確認。
+                        </p>
+                        <div className="id-row">
+                          <span className="id-label">補充說明</span>
+                          <input
+                            type="text"
+                            value={legacyContactNote}
+                            onChange={(e) => setLegacyContactNote(e.target.value)}
+                            placeholder="選填，例如留個聯絡方式或以前買過什麼"
+                          />
+                        </div>
+                        <div className="auth-msg">{legacyMsg}</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="btn" onClick={onLegacyClaimRequest} disabled={legacySubmitting}>
+                            {legacySubmitting ? "送出中…" : "請管理者協助確認"}
+                          </button>
+                          <button className="src-btn" onClick={resetLegacyFlow}>重新輸入暱稱</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {legacyStep === "requestSent" && (
+                      <div>
+                        <p style={{ color: "#6B6858", fontSize: 14 }}>已經送出，請等待管理者協助確認，確認後可以請他跟你回報怎麼操作。</p>
+                        <button className="btn" onClick={resetLegacyFlow}>回上一步</button>
+                      </div>
+                    )}
+
+                    {legacyStep === "confirm" && (
+                      <div>
+                        <p style={{ color: "#6B6858", fontSize: 14, marginBottom: 10 }}>
+                          {legacyCandidates.length > 1 ? "找到好幾筆符合的資料，請選出是你的那一筆：" : "找到符合的資料，這是你嗎？"}
+                        </p>
+                        {legacyCandidates.map((c) => (
+                          <label
+                            key={c.id}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", marginBottom: 8,
+                              border: `1px solid ${legacySelectedId === c.id ? "var(--primary)" : "var(--line)"}`,
+                              borderRadius: 8, cursor: "pointer", background: legacySelectedId === c.id ? "#FDF6EC" : "transparent",
+                            }}
+                          >
+                            <input type="radio" name="legacyCandidate" checked={legacySelectedId === c.id} onChange={() => setLegacySelectedId(c.id)} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13, color: "var(--muted)" }}>{c.nicknames.join(" / ") || "(無暱稱)"}</div>
+                              <a href={c.profileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, wordBreak: "break-all" }}>{c.profileUrl}</a>
+                            </div>
+                          </label>
+                        ))}
+                        <div className="auth-msg">{legacyMsg}</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="btn" onClick={onLegacyConfirmYes} disabled={!legacySelectedId}>是我，繼續設定帳號</button>
+                          <button className="src-btn" onClick={resetLegacyFlow}>不是我／重新輸入</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {legacyStep === "form" && (
+                      <>
+                        <p style={{ color: "#6B6858", fontSize: 13, marginBottom: 10 }}>設定新帳號密碼，之後就用這組帳密登入。</p>
+                        <div className="id-row">
+                          <span className="id-label">帳號</span>
+                          <input type="text" value={legacyUsername} onChange={(e) => setLegacyUsername(e.target.value)} placeholder="至少 3 個字，預設沿用你的暱稱" />
+                        </div>
+                        <div className="id-row">
+                          <span className="id-label">密碼</span>
+                          <input type="password" value={legacyPassword} onChange={(e) => setLegacyPassword(e.target.value)} placeholder="至少 6 個字" />
+                        </div>
+                        <div className="id-row">
+                          <span className="id-label">確認密碼</span>
+                          <input type="password" value={legacyConfirmPassword} onChange={(e) => setLegacyConfirmPassword(e.target.value)} placeholder="再輸入一次" />
+                        </div>
+                        <div className="id-row">
+                          <span className="id-label">Email</span>
+                          <input type="text" value={legacyEmail} onChange={(e) => setLegacyEmail(e.target.value)} placeholder="請留下可收信的信箱，會寄驗證信" />
+                        </div>
+                        <div className="auth-msg">{legacyMsg}</div>
+                        <button className="btn" onClick={onLegacyClaim} disabled={legacySubmitting}>{legacySubmitting ? "建立中…" : "完成，建立帳號"}</button>
+                      </>
+                    )}
                   </>
                 )}
               </>

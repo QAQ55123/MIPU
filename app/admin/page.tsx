@@ -34,7 +34,7 @@ export default function AdminPage() {
   const [savingAdminPw, setSavingAdminPw] = useState(false);
   const [savingAdminEmail, setSavingAdminEmail] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "products" | "orders" | "members" | "codes">("account");
+  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "products" | "orders" | "members" | "codes" | "legacy">("account");
   const categoryFormRef = useRef<HTMLDivElement>(null);
   const planFormRef = useRef<HTMLDivElement>(null);
   const [categoryFilterText, setCategoryFilterText] = useState("");
@@ -78,6 +78,32 @@ export default function AdminPage() {
   const [savingPaidAmount, setSavingPaidAmount] = useState(false);
   const [orderLookupMsg, setOrderLookupMsg] = useState("");
   const [cancelRequests, setCancelRequests] = useState<any[]>([]);
+
+  // 舊會員確認
+  const [legacyIdentities, setLegacyIdentities] = useState<any[]>([]);
+  const [legacyIdentitySearch, setLegacyIdentitySearch] = useState("");
+  const [legacyIdentitiesMsg, setLegacyIdentitiesMsg] = useState("");
+  const [legacyRequests, setLegacyRequests] = useState<any[]>([]);
+  const [legacyRequestsMsg, setLegacyRequestsMsg] = useState("");
+  const [legacyUnmatchedOrders, setLegacyUnmatchedOrders] = useState<any[]>([]);
+  const [legacyUnmatchedMsg, setLegacyUnmatchedMsg] = useState("");
+  const [legacyReassignTarget, setLegacyReassignTarget] = useState<Record<string, string>>({});
+
+  // 舊會員確認：資料匯入
+  const [identitiesFile, setIdentitiesFile] = useState<File | null>(null);
+  const [identitiesImporting, setIdentitiesImporting] = useState(false);
+  const [identitiesResult, setIdentitiesResult] = useState<any>(null);
+
+  const [manualOrdersFile, setManualOrdersFile] = useState<File | null>(null);
+  const [manualOrdersImporting, setManualOrdersImporting] = useState(false);
+  const [manualOrdersResult, setManualOrdersResult] = useState<any>(null);
+
+  const [legacySheetId, setLegacySheetId] = useState("");
+  const [legacySheetTabs, setLegacySheetTabs] = useState<string[]>([]);
+  const [legacySheetTabsMsg, setLegacySheetTabsMsg] = useState("");
+  const [legacySheetTabsLoading, setLegacySheetTabsLoading] = useState(false);
+  const [legacyTabResults, setLegacyTabResults] = useState<Record<string, any>>({});
+  const [legacyTabImporting, setLegacyTabImporting] = useState<Record<string, boolean>>({});
   const [staffAdmins, setStaffAdmins] = useState<any[]>([]);
   const [staffAdminsMsg, setStaffAdminsMsg] = useState("");
   const [syncingSheets, setSyncingSheets] = useState(false);
@@ -118,6 +144,9 @@ export default function AdminPage() {
         loadInviteCodes();
         loadCancelRequests();
         loadStaffAdmins();
+        loadLegacyIdentities();
+        loadLegacyRequests();
+        loadLegacyUnmatchedOrders();
       }
     }
   }, [unlocked, currentRole]);
@@ -684,6 +713,140 @@ export default function AdminPage() {
     }
   }
 
+  async function loadLegacyIdentities() {
+    try {
+      const qs = legacyIdentitySearch.trim() ? `?q=${encodeURIComponent(legacyIdentitySearch.trim())}` : "";
+      const r = await fetch(`/api/admin/legacy-identities${qs}`, { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setLegacyIdentities(d.identities || []);
+    } catch {
+      setLegacyIdentitiesMsg("載入失敗");
+    }
+  }
+
+  async function loadLegacyRequests() {
+    try {
+      const r = await fetch("/api/admin/legacy-claim-requests?status=pending", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setLegacyRequests(d.requests || []);
+    } catch {
+      setLegacyRequestsMsg("載入失敗");
+    }
+  }
+
+  async function resolveLegacyRequest(id: string, action: "resolve" | "reject") {
+    setLegacyRequestsMsg("處理中…");
+    try {
+      await callJson("/api/admin/legacy-claim-requests", "PATCH", { id, action });
+      setLegacyRequestsMsg(action === "resolve" ? "已標記為已處理。" : "已標記為不予處理。");
+      loadLegacyRequests();
+    } catch (e: any) {
+      setLegacyRequestsMsg("失敗：" + e.message);
+    }
+  }
+
+  async function loadLegacyUnmatchedOrders() {
+    try {
+      const r = await fetch("/api/admin/legacy-orders", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setLegacyUnmatchedOrders(d.orders || []);
+    } catch {
+      setLegacyUnmatchedMsg("載入失敗");
+    }
+  }
+
+  async function reassignLegacyOrder(orderNo: string) {
+    const targetUsername = (legacyReassignTarget[orderNo] || "").trim();
+    if (!targetUsername) { setLegacyUnmatchedMsg("請先輸入要指定的會員帳號"); return; }
+    setLegacyUnmatchedMsg("處理中…");
+    try {
+      const d = await callJson("/api/admin/legacy-orders", "PATCH", { orderNo, targetUsername });
+      setLegacyUnmatchedMsg(d.syncWarning || "已改派完成。");
+      loadLegacyUnmatchedOrders();
+    } catch (e: any) {
+      setLegacyUnmatchedMsg("失敗：" + e.message);
+    }
+  }
+
+  async function submitIdentitiesFile(commit: boolean) {
+    if (!identitiesFile) return;
+    setIdentitiesImporting(true);
+    setIdentitiesResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", identitiesFile);
+      fd.append("commit", commit ? "true" : "false");
+      const r = await fetch("/api/admin/legacy-import/identities", { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok) { setIdentitiesResult({ error: d.error || "匯入失敗" }); return; }
+      setIdentitiesResult(d);
+      if (commit) loadLegacyIdentities();
+    } catch {
+      setIdentitiesResult({ error: "網路連線失敗，請再試一次" });
+    } finally {
+      setIdentitiesImporting(false);
+    }
+  }
+
+  async function submitManualOrdersFile(commit: boolean) {
+    if (!manualOrdersFile) return;
+    setManualOrdersImporting(true);
+    setManualOrdersResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", manualOrdersFile);
+      fd.append("commit", commit ? "true" : "false");
+      const r = await fetch("/api/admin/legacy-import/manual-orders", { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok) { setManualOrdersResult({ error: d.error || "匯入失敗" }); return; }
+      setManualOrdersResult(d);
+      if (commit) loadLegacyUnmatchedOrders();
+    } catch {
+      setManualOrdersResult({ error: "網路連線失敗，請再試一次" });
+    } finally {
+      setManualOrdersImporting(false);
+    }
+  }
+
+  async function loadLegacySheetTabs() {
+    if (!legacySheetId.trim()) { setLegacySheetTabsMsg("請輸入試算表 ID"); return; }
+    setLegacySheetTabsLoading(true);
+    setLegacySheetTabsMsg("");
+    setLegacyTabResults({});
+    try {
+      const r = await fetch(`/api/admin/legacy-import/sheet-tabs?sheetId=${encodeURIComponent(legacySheetId.trim())}`, { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok) { setLegacySheetTabsMsg(d.error || "讀取失敗"); return; }
+      setLegacySheetTabs(d.tabs || []);
+      if (!d.tabs || d.tabs.length === 0) setLegacySheetTabsMsg("這份試算表沒有任何分頁");
+    } catch {
+      setLegacySheetTabsMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLegacySheetTabsLoading(false);
+    }
+  }
+
+  async function importLegacySheetTabAction(tabName: string, commit: boolean) {
+    setLegacyTabImporting((prev) => ({ ...prev, [tabName]: true }));
+    try {
+      const r = await fetch("/api/admin/legacy-import/sheet-tab", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheetId: legacySheetId.trim(), tabName, commit }),
+      });
+      const d = await r.json();
+      setLegacyTabResults((prev) => ({ ...prev, [tabName]: r.ok ? d : { error: d.error || "匯入失敗" } }));
+      if (r.ok && commit) loadLegacyUnmatchedOrders();
+    } catch {
+      setLegacyTabResults((prev) => ({ ...prev, [tabName]: { error: "網路連線失敗，請再試一次" } }));
+    } finally {
+      setLegacyTabImporting((prev) => ({ ...prev, [tabName]: false }));
+    }
+  }
+
   async function syncAllToSheets() {
     setSyncSheetsMsg("");
     setSyncingSheets(true);
@@ -813,6 +976,7 @@ export default function AdminPage() {
               <div className={`account-nav-item ${activeSection === "orders" ? "active" : ""}`} onClick={() => setActiveSection("orders")}>訂單管理</div>
               <div className={`account-nav-item ${activeSection === "members" ? "active" : ""}`} onClick={() => setActiveSection("members")}>會員管理</div>
               <div className={`account-nav-item ${activeSection === "codes" ? "active" : ""}`} onClick={() => setActiveSection("codes")}>邀請碼管理</div>
+              <div className={`account-nav-item ${activeSection === "legacy" ? "active" : ""}`} onClick={() => setActiveSection("legacy")}>舊會員確認</div>
             </>
           )}
         </aside>
@@ -1343,6 +1507,206 @@ export default function AdminPage() {
             </div>
           ))}
           <div style={{ fontSize: 13, marginTop: 6 }}>{staffAdminsMsg}</div>
+        </div>
+            </>
+          )}
+
+          {activeSection === "legacy" && currentRole === "owner" && (
+            <>
+        <div className="auth-card">
+          <h3>匯入身份名冊</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            上傳 FB／LINE／Discord 暱稱對照表（CSV 檔案，從 Google 試算表「檔案 → 下載 → 逗號分隔值」匯出）。
+          </p>
+          <input type="file" accept=".csv" onChange={(e) => { setIdentitiesFile(e.target.files?.[0] || null); setIdentitiesResult(null); }} style={{ margin: "8px 0" }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn small secondary" onClick={() => submitIdentitiesFile(false)} disabled={!identitiesFile || identitiesImporting}>預覽</button>
+            <button className="btn small" onClick={() => submitIdentitiesFile(true)} disabled={!identitiesFile || identitiesImporting}>確認匯入</button>
+          </div>
+          {identitiesImporting && <div style={{ fontSize: 13, marginTop: 6 }}>處理中…</div>}
+          {identitiesResult && (
+            <div style={{ fontSize: 13, marginTop: 8, maxHeight: 220, overflowY: "auto", border: "1px solid #EDE9DC", borderRadius: 8, padding: 8 }}>
+              {identitiesResult.error ? (
+                <div style={{ color: "#791F1F" }}>錯誤：{identitiesResult.error}</div>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                    {identitiesResult.commit ? `新增 ${identitiesResult.created} 筆，更新 ${identitiesResult.updated} 筆，略過 ${identitiesResult.skipped} 筆` : `共 ${identitiesResult.total} 筆（預覽模式，尚未寫入）`}
+                  </div>
+                  {identitiesResult.results?.map((r: any, i: number) => (
+                    <div key={i} style={{ color: r.status === "error" ? "#791F1F" : r.status === "skip" ? "#8A8779" : "#33415C" }}>
+                      [{r.row}] {r.label} {r.message ? `－ ${r.message}` : ""}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="auth-card">
+          <h3>匯入舊訂單（手動範本）</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            格式不固定、沒辦法自動解析的舊分頁，用手動範本整理後上傳（.xlsx）。建議先「匯入身份名冊」再匯入這個，配對才會準。
+          </p>
+          <input type="file" accept=".xlsx" onChange={(e) => { setManualOrdersFile(e.target.files?.[0] || null); setManualOrdersResult(null); }} style={{ margin: "8px 0" }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn small secondary" onClick={() => submitManualOrdersFile(false)} disabled={!manualOrdersFile || manualOrdersImporting}>預覽</button>
+            <button className="btn small" onClick={() => submitManualOrdersFile(true)} disabled={!manualOrdersFile || manualOrdersImporting}>確認匯入</button>
+          </div>
+          {manualOrdersImporting && <div style={{ fontSize: 13, marginTop: 6 }}>處理中…</div>}
+          {manualOrdersResult && (
+            <div style={{ fontSize: 13, marginTop: 8, maxHeight: 220, overflowY: "auto", border: "1px solid #EDE9DC", borderRadius: 8, padding: 8 }}>
+              {manualOrdersResult.error ? (
+                <div style={{ color: "#791F1F" }}>錯誤：{manualOrdersResult.error}</div>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                    共 {manualOrdersResult.groupCount} 張訂單
+                    {manualOrdersResult.commit ? `，成功 ${manualOrdersResult.ok} 張，失敗 ${manualOrdersResult.failed} 張` : "（預覽模式，尚未寫入）"}
+                    ，對不到身份 {manualOrdersResult.unmatched} 張
+                  </div>
+                  {manualOrdersResult.rowErrors?.map((e: string, i: number) => <div key={i} style={{ color: "#791F1F" }}>{e}</div>)}
+                  {manualOrdersResult.results?.map((r: any, i: number) => (
+                    <div key={i} style={{ color: r.status === "error" ? "#791F1F" : r.matched ? "#33415C" : r.ambiguous ? "#B08E5A" : "#8A8779" }}>
+                      [{r.groupKey}] {r.label} {r.matched ? "✓對到身份" : r.ambiguous ? "⚠暱稱撞名" : "✗對不到身份"} {r.message ? `－ ${r.message}` : ""}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="auth-card">
+          <h3>匯入舊訂單（自動解析舊試算表）</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            商品目錄+訂單明細的標準格式分頁，可以直接讀取解析。一次只處理一個分頁，避免逾時。
+            這份舊試算表要先分享給服務帳戶（跟現在系統同步用的是同一組），權限給「檢視者」即可。
+          </p>
+          <div className="id-row">
+            <span className="id-label">試算表ID</span>
+            <input type="text" value={legacySheetId} onChange={(e) => setLegacySheetId(e.target.value)} placeholder="網址 /d/ 後面那一串" />
+            <button className="btn small" onClick={loadLegacySheetTabs} disabled={legacySheetTabsLoading}>{legacySheetTabsLoading ? "讀取中…" : "讀取分頁清單"}</button>
+          </div>
+          <div style={{ fontSize: 13 }}>{legacySheetTabsMsg}</div>
+
+          {legacySheetTabs.map((tab) => {
+            const result = legacyTabResults[tab];
+            const importing = legacyTabImporting[tab];
+            return (
+              <div key={tab} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{tab}</span>
+                  <span style={{ display: "flex", gap: 6 }}>
+                    <button className="btn small secondary" onClick={() => importLegacySheetTabAction(tab, false)} disabled={importing}>預覽</button>
+                    <button className="btn small" onClick={() => importLegacySheetTabAction(tab, true)} disabled={importing}>確認匯入</button>
+                  </span>
+                </div>
+                {importing && <div style={{ fontSize: 12, color: "#8A8779" }}>處理中…</div>}
+                {result && (
+                  <div style={{ fontSize: 12, marginTop: 4, maxHeight: 160, overflowY: "auto" }}>
+                    {result.error ? (
+                      <div style={{ color: "#791F1F" }}>錯誤：{result.error}</div>
+                    ) : result.standardFormat === false ? (
+                      <div style={{ color: "#B08E5A" }}>{result.message}</div>
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: 600 }}>
+                          共 {result.orderCount} 張訂單
+                          {result.commit ? `，成功 ${result.ok} 張，失敗 ${result.failed} 張` : "（預覽模式，尚未寫入）"}
+                          ，對不到身份 {result.unmatched} 張
+                        </div>
+                        {result.results?.map((r: any, i: number) => (
+                          <div key={i} style={{ color: r.status === "error" ? "#791F1F" : r.matched ? "#33415C" : r.ambiguous ? "#B08E5A" : "#8A8779" }}>
+                            [{r.orderNo}] {r.label} {r.matched ? "✓" : r.ambiguous ? "⚠撞名" : "✗未配對"} {r.message ? `－ ${r.message}` : ""}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="auth-card">
+          <h3>待處理請求</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            舊會員在「舊會員整合」頁面輸入暱稱找不到資料時，送出的協助請求。
+          </p>
+          {legacyRequests.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有待處理的請求</div>}
+          {legacyRequests.map((r) => (
+            <div key={r.id} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{r.inputNickname}</div>
+              {r.contactNote && <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>補充：{r.contactNote}</div>}
+              <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>{new Date(r.createdAt).toLocaleString("zh-TW")}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn small" onClick={() => resolveLegacyRequest(r.id, "resolve")}>標記已處理</button>
+                <button className="btn small secondary" onClick={() => resolveLegacyRequest(r.id, "reject")}>不予處理</button>
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 13, marginTop: 6 }}>{legacyRequestsMsg}</div>
+        </div>
+
+        <div className="auth-card">
+          <h3>身份名冊查詢</h3>
+          <div className="id-row">
+            <span className="id-label">搜尋</span>
+            <input
+              type="text"
+              value={legacyIdentitySearch}
+              onChange={(e) => setLegacyIdentitySearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && loadLegacyIdentities()}
+              placeholder="暱稱或FB網址"
+            />
+            <button className="btn small" onClick={loadLegacyIdentities}>查詢</button>
+          </div>
+          <div style={{ fontSize: 13 }}>{legacyIdentitiesMsg}</div>
+          {legacyIdentities.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>沒有符合的資料</div>}
+          {legacyIdentities.map((id) => (
+            <div key={id.id} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                {[id.fbNickname, id.lineNickname, id.discordNickname, id.dcAccountName].filter(Boolean).join(" / ") || "(無暱稱)"}
+              </div>
+              <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0", wordBreak: "break-all" }}>{id.fbProfileUrl}</div>
+              <div style={{ fontSize: 12, color: id.claimed ? "#27500A" : "#8A8779" }}>
+                {id.claimed ? `已被「${id.claimedByUsername || "未知帳號"}」認領（${new Date(id.claimedAt).toLocaleDateString("zh-TW")}）` : "尚未認領"}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="auth-card">
+          <h3>配對不到身份的舊訂單</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            匯入舊資料時對不到身份名冊的訂單，可以在這裡查到內容，手動指定給正確的會員帳號（帳號要已經存在）。
+          </p>
+          {legacyUnmatchedOrders.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前沒有待處理的訂單</div>}
+          {legacyUnmatchedOrders.map((o) => (
+            <div key={o.orderNo} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{o.planName}　<span style={{ fontWeight: 400, color: "#8A8779", fontSize: 12 }}>訂單編號 {o.orderNo}</span></div>
+              <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>
+                原暱稱：{o.username}　交易方式：{o.payment}　合計 NT$ {o.total}　{new Date(o.createdAt).toLocaleDateString("zh-TW")}
+              </div>
+              {o.items.map((it: any, idx: number) => (
+                <div key={idx} style={{ fontSize: 13, color: "#33415C" }}>・{it.name}{it.style ? `（${it.style}）` : ""} x{it.qty}</div>
+              ))}
+              <div className="id-row" style={{ marginTop: 8 }}>
+                <span className="id-label">指定給</span>
+                <input
+                  type="text"
+                  placeholder="正確的會員帳號"
+                  value={legacyReassignTarget[o.orderNo] || ""}
+                  onChange={(e) => setLegacyReassignTarget((prev) => ({ ...prev, [o.orderNo]: e.target.value }))}
+                />
+                <button className="btn small" onClick={() => reassignLegacyOrder(o.orderNo)}>改派</button>
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 13, marginTop: 6 }}>{legacyUnmatchedMsg}</div>
         </div>
             </>
           )}

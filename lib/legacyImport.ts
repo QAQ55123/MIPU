@@ -1,0 +1,357 @@
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { google } from "googleapis";
+
+export function norm(v: any): string {
+  return String(v ?? "").trim();
+}
+
+/** 簡易 CSV 解析（全部當文字處理，避免大數字如 Discord ID 精度遺失） */
+export function parseCsv(text: string): Record<string, string>[] {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else if (c === "\r") { /* 忽略 */ }
+      else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+  const headers = rows[0];
+  return rows
+    .slice(1)
+    .filter((r) => r.some((v) => norm(v) !== ""))
+    .map((r) => {
+      const obj: Record<string, string> = {};
+      headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ""; });
+      return obj;
+    });
+}
+
+function genOrderNo(): string {
+  return String(Math.floor(100000000 + Math.random() * 900000000));
+}
+
+function parseFlexibleDate(raw: any): Date {
+  const s = norm(raw);
+  if (!s) return new Date();
+  const d = new Date(s.replace(/\//g, "-"));
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
+// ---------------- 身份名冊匯入 ----------------
+
+export async function importLegacyIdentitiesFromCsv(csvText: string, commit: boolean) {
+  const rows = parseCsv(csvText);
+  const supabase = getSupabaseAdmin();
+  const results: { row: number; label: string; status: "ok" | "skip" | "error"; message?: string }[] = [];
+  let created = 0, updated = 0, skipped = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const rowNo = i + 2;
+    const fbProfileUrl = norm(r["FB個人網址"]);
+    const fbNickname = norm(r["FB暱稱"]);
+    const lineNickname = norm(r["LINE暱稱"]);
+    const discordNickname = norm(r["Discord暱稱"]);
+    const dcAccountName = norm(r["DC帳號名稱"]);
+    const dcUserId = norm(r["DC使用者ID"]);
+    const label = [fbNickname, lineNickname, discordNickname, dcAccountName].filter(Boolean).join(" / ") || "(無暱稱)";
+
+    if (!fbProfileUrl) {
+      results.push({ row: rowNo, label, status: "skip", message: "沒有 FB個人網址" });
+      skipped++;
+      continue;
+    }
+    if (!commit) {
+      results.push({ row: rowNo, label: `${label} － ${fbProfileUrl}`, status: "ok" });
+      continue;
+    }
+
+    const { data: existing } = await supabase.from("legacy_identities").select("id").eq("fb_profile_url", fbProfileUrl).maybeSingle();
+    if (existing) {
+      const { error } = await supabase
+        .from("legacy_identities")
+        .update({
+          fb_nickname: fbNickname || null,
+          line_nickname: lineNickname || null,
+          discord_nickname: discordNickname || null,
+          dc_account_name: dcAccountName || null,
+          dc_user_id: dcUserId || null,
+        })
+        .eq("id", existing.id);
+      if (error) { results.push({ row: rowNo, label, status: "error", message: error.message }); skipped++; }
+      else { results.push({ row: rowNo, label, status: "ok", message: "更新" }); updated++; }
+    } else {
+      const { error } = await supabase.from("legacy_identities").insert({
+        fb_profile_url: fbProfileUrl,
+        fb_nickname: fbNickname || null,
+        line_nickname: lineNickname || null,
+        discord_nickname: discordNickname || null,
+        dc_account_name: dcAccountName || null,
+        dc_user_id: dcUserId || null,
+      });
+      if (error) { results.push({ row: rowNo, label, status: "error", message: error.message }); skipped++; }
+      else { results.push({ row: rowNo, label, status: "ok", message: "新增" }); created++; }
+    }
+  }
+
+  return { total: rows.length, created, updated, skipped, results };
+}
+
+// ---------------- 身份配對（共用） ----------------
+
+async function buildIdentityIndex() {
+  const supabase = getSupabaseAdmin();
+  const { data: identities } = await supabase.from("legacy_identities").select("*");
+  const byFbUrl = new Map<string, any>();
+  const byNickname = new Map<string, any[]>();
+  for (const id of identities || []) {
+    if (id.fb_profile_url) byFbUrl.set(norm(id.fb_profile_url).toLowerCase(), id);
+    for (const nick of [id.fb_nickname, id.line_nickname, id.discord_nickname, id.dc_account_name]) {
+      if (!nick) continue;
+      const key = norm(nick).toLowerCase();
+      if (!byNickname.has(key)) byNickname.set(key, []);
+      byNickname.get(key)!.push(id);
+    }
+  }
+  function resolve(fbUrl: string, nickname: string): { identity: any | null; ambiguous: boolean } {
+    if (fbUrl) {
+      const hit = byFbUrl.get(norm(fbUrl).toLowerCase());
+      if (hit) return { identity: hit, ambiguous: false };
+    }
+    if (nickname) {
+      const c = byNickname.get(norm(nickname).toLowerCase());
+      if (c && c.length === 1) return { identity: c[0], ambiguous: false };
+      if (c && c.length > 1) return { identity: null, ambiguous: true };
+    }
+    return { identity: null, ambiguous: false };
+  }
+  return { resolve };
+}
+
+async function findOrCreateArchivedPlan(planCache: Map<string, any>, planName: string, orderDate: Date, commit: boolean) {
+  if (planCache.has(planName)) return planCache.get(planName);
+  const supabase = getSupabaseAdmin();
+  const { data: existing } = await supabase.from("plans").select("*").eq("name", planName).eq("hide_after_days", 0).maybeSingle();
+  let plan = existing;
+  if (!plan && commit) {
+    const { data: created, error } = await supabase
+      .from("plans")
+      .insert({ name: planName, deadline: orderDate.toISOString(), hide_after_days: 0, fulfillment_status: "distributing" })
+      .select()
+      .single();
+    if (error) throw new Error("建立封存企劃失敗：" + error.message);
+    plan = created;
+  }
+  planCache.set(planName, plan);
+  return plan;
+}
+
+// ---------------- 手動範本匯入 ----------------
+
+export async function importLegacyOrdersManual(rows: Record<string, any>[], commit: boolean) {
+  const supabase = getSupabaseAdmin();
+  const { resolve } = await buildIdentityIndex();
+
+  type Group = { groupKey: string; nickname: string; fbUrl: string; planName: string; payment: string; paidAmount: number; orderDate: Date; items: { name: string; style: string; qty: number; unitPrice: number }[] };
+  const groups = new Map<string, Group>();
+  const rowErrors: string[] = [];
+
+  rows.forEach((r, idx) => {
+    const rowNo = idx + 2;
+    const groupKey = norm(r["訂單分組代號"]);
+    const nickname = norm(r["暱稱"]);
+    const fbUrl = norm(r["FB個人網址"]);
+    const planName = norm(r["企劃名稱"]);
+    const productName = norm(r["商品名稱"]);
+    const style = norm(r["款式"]);
+    const qty = Number(r["數量"]);
+    const unitPrice = Number(r["單價"]) || 0;
+    const payment = norm(r["交易方式"]);
+    const paidAmount = Number(r["已收金額"] || 0);
+    const orderDate = parseFlexibleDate(r["下單日期"]);
+
+    if (!groupKey && !nickname && !planName && !productName) return;
+    if (!groupKey || !nickname || !planName || !productName || !qty) {
+      rowErrors.push(`第 ${rowNo} 列：缺少必填欄位，已略過`);
+      return;
+    }
+    if (!["匯款", "取付"].includes(payment)) {
+      rowErrors.push(`第 ${rowNo} 列：交易方式必須是「匯款」或「取付」，目前是「${payment || "(空白)"}」，已略過`);
+      return;
+    }
+    if (!groups.has(groupKey)) groups.set(groupKey, { groupKey, nickname, fbUrl, planName, payment, paidAmount, orderDate, items: [] });
+    groups.get(groupKey)!.items.push({ name: productName, style, qty, unitPrice });
+  });
+
+  const planCache = new Map<string, any>();
+  const results: { groupKey: string; label: string; matched: boolean; ambiguous: boolean; status: "ok" | "error"; message?: string }[] = [];
+  let ok = 0, failed = 0, unmatched = 0;
+
+  for (const g of groups.values()) {
+    const { identity, ambiguous } = resolve(g.fbUrl, g.nickname);
+    const total = g.items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
+    if (!identity) unmatched++;
+
+    if (!commit) {
+      results.push({ groupKey: g.groupKey, label: `${g.nickname} － ${g.planName} － ${g.items.length}項 小計NT$${total}`, matched: !!identity, ambiguous, status: "ok" });
+      continue;
+    }
+
+    try {
+      const plan = await findOrCreateArchivedPlan(planCache, g.planName, g.orderDate, true);
+      for (const it of g.items) {
+        const { data: existingProduct } = await supabase.from("products").select("id").eq("plan_id", plan.id).eq("name", it.name).eq("style", it.style).maybeSingle();
+        if (!existingProduct) await supabase.from("products").insert({ plan_id: plan.id, name: it.name, style: it.style, price: it.unitPrice });
+      }
+      const profileUrl = g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
+      let order: any = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data, error } = await supabase.from("orders").insert({
+          order_no: genOrderNo(), plan_id: plan.id, plan_name_snapshot: g.planName,
+          username: g.nickname, profile_url: profileUrl, payment: g.payment, paid_amount: g.paidAmount,
+          created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
+        }).select().single();
+        if (!error) { order = data; break; }
+        if (!String(error.message).includes("duplicate")) throw new Error(error.message);
+      }
+      if (!order) throw new Error("建立訂單失敗（重試多次仍失敗）");
+      const itemRows = g.items.map((it) => ({ order_id: order.id, product_name: it.name, style: it.style, qty: it.qty, unit_price: it.unitPrice, subtotal: it.qty * it.unitPrice }));
+      const { error: itemsErr } = await supabase.from("order_items").insert(itemRows);
+      if (itemsErr) throw new Error(itemsErr.message);
+      results.push({ groupKey: g.groupKey, label: `${g.nickname} － ${g.planName}`, matched: !!identity, ambiguous, status: "ok" });
+      ok++;
+    } catch (e: any) {
+      results.push({ groupKey: g.groupKey, label: `${g.nickname} － ${g.planName}`, matched: !!identity, ambiguous, status: "error", message: e.message });
+      failed++;
+    }
+  }
+
+  return { groupCount: groups.size, ok, failed, unmatched, rowErrors, results };
+}
+
+// ---------------- 自動解析舊試算表（標準格式，一次一個分頁） ----------------
+
+function getLegacySheetsClient() {
+  const email = norm(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL);
+  let key = norm(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) key = key.slice(1, -1);
+  key = key.replace(/\\n/g, "\n");
+  if (!email || !key) throw new Error("尚未設定 GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
+  const auth = new google.auth.JWT({ email, key, scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"] });
+  return google.sheets({ version: "v4", auth });
+}
+
+export async function listLegacySheetTabs(sheetId: string) {
+  const sheets = getLegacySheetsClient();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+  return (meta.data.sheets || []).map((s) => s.properties?.title || "").filter(Boolean);
+}
+
+export async function importLegacySheetTab(sheetId: string, tabName: string, commit: boolean) {
+  const sheets = getLegacySheetsClient();
+  const supabase = getSupabaseAdmin();
+  const { resolve } = await buildIdentityIndex();
+
+  const resp = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${tabName}!A1:L2000` });
+  const rows = resp.data.values || [];
+
+  const headerRowIdx = rows.findIndex((r) => norm(r[0]) === "訂單編號");
+  if (headerRowIdx === -1) {
+    return { standardFormat: false, message: "找不到「訂單編號」標題列，這個分頁不是標準格式，請用手動範本處理。" };
+  }
+
+  const catalogImageByKey = new Map<string, string>();
+  for (let i = 0; i < headerRowIdx; i++) {
+    const r = rows[i];
+    const name = norm(r[0]);
+    if (!name || name === "商品名稱") continue;
+    const style = norm(r[1]);
+    const image = norm(r[3]);
+    if (image) catalogImageByKey.set(`${name}__${style}`, image);
+  }
+
+  const dataRows = rows.slice(headerRowIdx + 1).filter((r) => r.some((v) => norm(v) !== ""));
+  type Group = { orderNo: string; nickname: string; fbUrl: string; orderDate: Date; payment: string; items: { name: string; style: string; qty: number; unitPrice: number }[] };
+  const groups = new Map<string, Group>();
+  for (const r of dataRows) {
+    const orderNo = norm(r[0]);
+    if (!orderNo) continue;
+    const nickname = norm(r[2]);
+    const fbUrl = norm(r[3]);
+    const productName = norm(r[4]);
+    const style = norm(r[5]);
+    const qty = Number(r[6]) || 0;
+    const unitPrice = Number(r[7]) || 0;
+    const payment = norm(r[10]) || "匯款";
+    if (!groups.has(orderNo)) groups.set(orderNo, { orderNo, nickname, fbUrl, orderDate: parseFlexibleDate(r[9]), payment, items: [] });
+    if (productName) groups.get(orderNo)!.items.push({ name: productName, style, qty, unitPrice });
+  }
+
+  const planCache = new Map<string, any>();
+  const results: { orderNo: string; label: string; matched: boolean; ambiguous: boolean; status: "ok" | "error"; message?: string }[] = [];
+  let ok = 0, failed = 0, unmatched = 0;
+  let plan: any = commit && groups.size > 0 ? await findOrCreateArchivedPlan(planCache, tabName, new Date(), true) : null;
+
+  for (const g of groups.values()) {
+    const { identity, ambiguous } = resolve(g.fbUrl, g.nickname);
+    const total = g.items.reduce((s, it) => s + it.qty * it.unitPrice, 0);
+    if (!identity) unmatched++;
+
+    if (!commit) {
+      results.push({ orderNo: g.orderNo, label: `${g.nickname || "(無暱稱)"} － ${g.items.length}項 小計NT$${total}`, matched: !!identity, ambiguous, status: "ok" });
+      continue;
+    }
+
+    try {
+      for (const it of g.items) {
+        const { data: existingProduct } = await supabase.from("products").select("id").eq("plan_id", plan.id).eq("name", it.name).eq("style", it.style).maybeSingle();
+        if (!existingProduct) {
+          const imageUrl = catalogImageByKey.get(`${it.name}__${it.style}`) || null;
+          await supabase.from("products").insert({ plan_id: plan.id, name: it.name, style: it.style, price: it.unitPrice, image_url: imageUrl });
+        }
+      }
+      const profileUrl = g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
+      const usernamePlaceholder = g.nickname || identity?.fb_nickname || identity?.line_nickname || identity?.discord_nickname || "（未知）";
+      let order: any = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data, error } = await supabase.from("orders").insert({
+          order_no: genOrderNo(), plan_id: plan.id, plan_name_snapshot: tabName,
+          username: usernamePlaceholder, profile_url: profileUrl, payment: g.payment, paid_amount: 0,
+          created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
+        }).select().single();
+        if (!error) { order = data; break; }
+        if (!String(error.message).includes("duplicate")) throw new Error(error.message);
+      }
+      if (!order) throw new Error("建立訂單失敗（重試多次仍失敗）");
+      const itemRows = g.items.map((it) => ({
+        order_id: order.id, product_name: it.name, style: it.style, qty: it.qty, unit_price: it.unitPrice,
+        subtotal: it.qty * it.unitPrice, image_url: catalogImageByKey.get(`${it.name}__${it.style}`) || null,
+      }));
+      if (itemRows.length) {
+        const { error: itemsErr } = await supabase.from("order_items").insert(itemRows);
+        if (itemsErr) throw new Error(itemsErr.message);
+      }
+      results.push({ orderNo: g.orderNo, label: `${g.nickname || "(無暱稱)"} － ${g.items.length}項`, matched: !!identity, ambiguous, status: "ok" });
+      ok++;
+    } catch (e: any) {
+      results.push({ orderNo: g.orderNo, label: g.nickname || "(無暱稱)", matched: !!identity, ambiguous, status: "error", message: e.message });
+      failed++;
+    }
+  }
+
+  return { standardFormat: true, orderCount: groups.size, ok, failed, unmatched, results };
+}
