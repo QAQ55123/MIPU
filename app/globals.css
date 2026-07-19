@@ -119,6 +119,30 @@ html, body {
 .hist-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .hist-cancel-badge { font-size: 12px; color: #B08E5A; background: #FDF6EC; border-radius: 999px; padding: 4px 12px; }
 
+.hist-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.hist-search-box {
+  position: relative; flex: 1 1 200px; min-width: 160px;
+  display: flex; align-items: center;
+}
+.hist-search-icon { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
+.hist-search-input {
+  width: 100%; padding: 8px 30px 8px 32px; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 14px; background: var(--card);
+}
+.hist-search-input:focus { outline: none; border-color: var(--primary); }
+.hist-search-clear {
+  position: absolute; right: 6px; background: none; border: none; cursor: pointer;
+  color: var(--muted); display: flex; align-items: center; padding: 4px;
+}
+.hist-filter-select {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 14px; background: var(--card); color: inherit; flex: 0 0 auto;
+}
+@media (max-width: 640px) {
+  .hist-filter-bar { flex-direction: column; }
+  .hist-filter-select { width: 100%; }
+}
+
 /* ---- 新版頂欄 ---- */
 .mibu-header {
   position: sticky; top: 0; z-index: 30; height: 56px;

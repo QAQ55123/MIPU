@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight, Heart } from "lucide-react";
 
 type Category = { id: string; name: string; parentId: string | null };
@@ -142,6 +142,9 @@ export default function Home() {
   const [selectedProductName, setSelectedProductName] = useState<string | null>(null);
   const [selectedStyleByProduct, setSelectedStyleByProduct] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<any[]>([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all"); // all | purchased | shipping | arrived | distributing
+  const [historyCancelFilter, setHistoryCancelFilter] = useState<string>("all"); // all | normal | pending
 
   useEffect(() => {
     fetch("/api/categories", { cache: "no-store" }).then((r) => r.json()).then((d) => setCategories(d.categories || []));
@@ -675,6 +678,17 @@ export default function Home() {
     setExpandedOrders(new Set((d.orders || []).map((o: any) => o.orderNo))); // 預設全部展開
     setHistoryLoading(false);
   }
+
+  const filteredHistory = useMemo(() => {
+    const kw = historySearch.trim().toLowerCase();
+    return history.filter((o: any) => {
+      if (kw && !String(o.orderNo || "").toLowerCase().includes(kw)) return false;
+      if (historyStatusFilter !== "all" && o.fulfillmentStatus !== historyStatusFilter) return false;
+      if (historyCancelFilter === "pending" && !o.cancelRequested) return false;
+      if (historyCancelFilter === "normal" && o.cancelRequested) return false;
+      return true;
+    });
+  }, [history, historySearch, historyStatusFilter, historyCancelFilter]);
 
   function toggleOrderExpanded(orderNo: string) {
     setExpandedOrders((prev) => {
@@ -1285,9 +1299,52 @@ export default function Home() {
             {view === "history" && (
               <div>
                 <h2 className="section-title">我的歷史訂單</h2>
+
+                {!historyLoading && history.length > 0 && (
+                  <div className="hist-filter-bar">
+                    <div className="hist-search-box">
+                      <Search size={16} className="hist-search-icon" />
+                      <input
+                        type="text"
+                        placeholder="搜尋訂單編號"
+                        value={historySearch}
+                        onChange={(e) => setHistorySearch(e.target.value)}
+                        className="hist-search-input"
+                      />
+                      {historySearch && (
+                        <button className="hist-search-clear" onClick={() => setHistorySearch("")} aria-label="清除搜尋">
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <select
+                      className="hist-filter-select"
+                      value={historyStatusFilter}
+                      onChange={(e) => setHistoryStatusFilter(e.target.value)}
+                    >
+                      <option value="all">全部企劃狀態</option>
+                      {Object.entries(FULFILLMENT_STATUS_MAP).map(([key, v]) => (
+                        <option key={key} value={key}>{v.label}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="hist-filter-select"
+                      value={historyCancelFilter}
+                      onChange={(e) => setHistoryCancelFilter(e.target.value)}
+                    >
+                      <option value="all">全部訂單</option>
+                      <option value="normal">一般訂單</option>
+                      <option value="pending">取消審核中</option>
+                    </select>
+                  </div>
+                )}
+
                 {historyLoading && <div className="spinner">載入中…</div>}
                 {!historyLoading && history.length === 0 && <div className="spinner">目前沒有訂單紀錄</div>}
-                {!historyLoading && history.map((o) => {
+                {!historyLoading && history.length > 0 && filteredHistory.length === 0 && (
+                  <div className="spinner">沒有符合搜尋/篩選條件的訂單</div>
+                )}
+                {!historyLoading && filteredHistory.map((o) => {
                   const expanded = expandedOrders.has(o.orderNo);
                   return (
                     <div className="hist-card" key={o.orderNo}>
