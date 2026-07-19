@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { requireAdminSession } from "@/lib/adminAuth";
+import { requireAdminSession, requireOwnerSession } from "@/lib/adminAuth";
 import { deleteStorageFiles } from "@/lib/storage";
 import { syncPlansSheet } from "@/lib/sheetsSync";
+import { requireSheetId, deleteSheetTabIfExists } from "@/lib/googleSheets";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -134,11 +135,20 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }
   if (!body.id) return NextResponse.json({ error: "缺少企劃 id" }, { status: 400 });
+  const purgeOrders = body.purgeOrders === true;
+
+  if (purgeOrders) {
+    try {
+      requireOwnerSession(req);
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message }, { status: 403 });
+    }
+  }
 
   const supabase = getSupabaseAdmin();
 
   // 刪除前先把這個企劃、以及底下所有商品用到的圖片蒐集起來，等資料庫刪除成功後一併清掉 Storage 檔案
-  const { data: plan } = await supabase.from("plans").select("image_url, promo_images").eq("id", body.id).single();
+  const { data: plan } = await supabase.from("plans").select("id, name, image_url, promo_images").eq("id", body.id).single();
   const { data: products } = await supabase.from("products").select("image_url").eq("plan_id", body.id);
   const urlsToDelete = [
     plan?.image_url,
@@ -146,12 +156,37 @@ export async function DELETE(req: Request) {
     ...((products || []).map((p) => p.image_url)),
   ];
 
-  // 注意：刪除企劃會連同底下的商品一起刪除（外鍵 cascade），但訂單記錄會保留（只是不再連到這個企劃，企劃名稱已經有快照）
+  let purgedOrderCount = 0;
+  let sheetTabDeleteWarning = "";
+
+  if (purgeOrders && plan) {
+    // 連訂單一起刪除：先刪 order_items，再刪 orders（成本試算表不會動，資料保留）
+    const { data: orders } = await supabase.from("orders").select("id").eq("plan_id", plan.id);
+    const orderIds = (orders || []).map((o) => o.id);
+    purgedOrderCount = orderIds.length;
+    if (orderIds.length) {
+      const { error: itemsErr } = await supabase.from("order_items").delete().in("order_id", orderIds);
+      if (itemsErr) return NextResponse.json({ error: "刪除訂單明細失敗：" + itemsErr.message }, { status: 500 });
+      const { error: ordersErr } = await supabase.from("orders").delete().in("id", orderIds);
+      if (ordersErr) return NextResponse.json({ error: "刪除訂單失敗：" + ordersErr.message }, { status: 500 });
+    }
+  }
+
+  // 注意：一般刪除只會連同底下的商品一起刪除（外鍵 cascade），訂單記錄會保留（只是不再連到這個企劃，企劃名稱已經有快照）
   const { error } = await supabase.from("plans").delete().eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   deleteStorageFiles(urlsToDelete).catch(() => {});
 
+  if (purgeOrders && plan?.name) {
+    // 刪掉主試算表裡這個企劃的分頁（訂單明細+商品目錄）；成本試算表刻意不動，保留財務歷史紀錄
+    try {
+      await deleteSheetTabIfExists(requireSheetId(), plan.name);
+    } catch (e: any) {
+      sheetTabDeleteWarning = "企劃與訂單已刪除，但清除 Google Sheet 分頁時發生問題：" + (e?.message || "未知錯誤");
+    }
+  }
+
   syncPlansSheet().catch(() => {});
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, purgedOrderCount, syncWarning: sheetTabDeleteWarning || undefined });
 }

@@ -431,6 +431,18 @@ export default function AdminPage() {
     }
   }
 
+  async function purgePlan(id: string, name: string) {
+    if (!confirm(`確定要「徹底刪除」企劃「${name}」嗎？\n\n這會連同底下所有訂單、商品明細一起永久刪除，也會把 Google Sheet 上這個企劃的訂單分頁刪掉，無法復原！\n\n（成本試算表的分頁不會被動到，財務紀錄會保留）`)) return;
+    try {
+      const d = await callJson("/api/admin/plans", "DELETE", { id, purgeOrders: true });
+      if (activePlanForProducts?.id === id) setActivePlanForProducts(null);
+      setPlanMsg(d.syncWarning || `已徹底刪除，一併清除了 ${d.purgedOrderCount} 筆訂單。`);
+      loadPlans();
+    } catch (e: any) {
+      setPlanMsg("失敗：" + e.message);
+    }
+  }
+
   async function handlePlanImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1244,6 +1256,9 @@ export default function AdminPage() {
                       <button className="btn small secondary" onClick={() => openProductManager(p)}>管理商品</button>
                       <button className="btn small secondary" onClick={() => editPlan(p)}>編輯</button>
                       <button className="btn small danger" onClick={() => deletePlan(p.id)}>刪除</button>
+                      {currentRole === "owner" && (
+                        <button className="btn small danger" onClick={() => purgePlan(p.id, p.name)} title="連訂單一起永久刪除，成本試算表資料會保留">徹底刪除（含訂單）</button>
+                      )}
                     </span>
                   </div>
                 ))}

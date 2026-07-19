@@ -51,6 +51,17 @@ function parseFlexibleDate(raw: any): Date {
   return isNaN(d.getTime()) ? new Date() : d;
 }
 
+/** 把 Google Drive「分享連結」（給人點開瀏覽用）轉成可以直接當 <img src> 用的圖片網址 */
+function toDirectImageUrl(url: string): string {
+  const u = norm(url);
+  if (!u) return u;
+  let m = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (!m) m = u.match(/drive\.google\.com\/open\?id=([^&]+)/);
+  if (!m) m = u.match(/[?&]id=([^&]+)/);
+  if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
+  return u;
+}
+
 // ---------------- 身份名冊匯入 ----------------
 
 export async function importLegacyIdentitiesFromCsv(csvText: string, commit: boolean) {
@@ -160,7 +171,7 @@ async function findOrCreateArchivedPlan(planCache: Map<string, any>, planName: s
   if (!plan && commit) {
     const { data: created, error } = await supabase
       .from("plans")
-      .insert({ name: planName, deadline: orderDate.toISOString(), hide_after_days: 0, fulfillment_status: "distributing" })
+      .insert({ name: planName, deadline: orderDate.toISOString(), hide_after_days: 0, fulfillment_status: "purchased" })
       .select()
       .single();
     if (error) throw new Error("建立封存企劃失敗：" + error.message);
@@ -293,7 +304,7 @@ export async function importLegacySheetTab(sheetId: string, tabName: string, com
     if (!name || name === "商品名稱") continue;
     const style = norm(r[1]);
     const image = norm(r[3]);
-    if (image) catalogImageByKey.set(`${name}__${style}`, image);
+    if (image) catalogImageByKey.set(`${name}__${style}`, toDirectImageUrl(image));
   }
 
   const dataRows = rows.slice(headerRowIdx + 1).filter((r) => r.some((v) => norm(v) !== ""));

@@ -1170,9 +1170,8 @@ export default function Home() {
               <>
                 <a className="auth-back-link" onClick={() => { setPendingAction(null); setView("plans"); }}>← 返回</a>
                 {verifyBannerMsg && <div className="rules-box">{verifyBannerMsg}</div>}
-                {pendingAction === "order" && <div className="rules-box">送出訂單前，請先登入</div>}
-                {pendingAction === "history" && <div className="rules-box">查詢歷史訂單前，請先登入</div>}
-                {pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先登入</div>}
+                {authTab !== "legacy" && pendingAction === "order" && <div className="rules-box">送出訂單前，請先登入</div>}
+                {authTab !== "legacy" && pendingAction === "favorites" && <div className="rules-box">收藏企劃前，請先登入</div>}
 
                 <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
                   <button className={`src-btn ${authTab === "login" ? "active" : ""}`} onClick={() => { setAuthTab("login"); setAuthMsg(""); }}>登入</button>
@@ -1600,7 +1599,17 @@ export default function Home() {
                               </span>
                             )}
                           </span>
-                          <span className="hist-plan-name">{o.planName}</span>
+                          <span
+                            className={`hist-plan-name ${o.planId ? "hist-plan-name-link" : ""}`}
+                            onClick={(e) => {
+                              if (!o.planId) return;
+                              e.stopPropagation();
+                              openPlan({ id: o.planId } as Plan);
+                            }}
+                            title={o.planId ? "點擊查看這個企劃" : "企劃已經被刪除，無法查看"}
+                          >
+                            {o.planName}
+                          </span>
                         </span>
                         <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
                         <ChevronDown size={22} className="hist-toggle-icon" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
