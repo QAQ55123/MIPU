@@ -173,11 +173,15 @@ export default function Home() {
   const [announcements, setAnnouncements] = useState<{ id: string; content: string; createdAt: string }[]>([]);
   const [announcementPanelOpen, setAnnouncementPanelOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [announcementModal, setAnnouncementModal] = useState<{ content: string; createdAt: string } | null>(null);
+  const [truncatedMap, setTruncatedMap] = useState<Record<string, boolean>>({});
+  const [checkoutNotice, setCheckoutNotice] = useState("");
   const announcementWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/categories", { cache: "no-store" }).then((r) => r.json()).then((d) => setCategories(d.categories || []));
     fetch("/api/announcements", { cache: "no-store" }).then((r) => r.json()).then((d) => setAnnouncements(d.announcements || [])).catch(() => {});
+    fetch("/api/site-settings", { cache: "no-store" }).then((r) => r.json()).then((d) => setCheckoutNotice(d.checkoutNotice || "")).catch(() => {});
 
     const params = new URLSearchParams(window.location.search);
 
@@ -391,6 +395,14 @@ export default function Home() {
   function continueAfterRegister() {
     setRegisterDone(false);
     if (identity) afterAuthSuccess(identity);
+  }
+
+  function measureTruncation(id: string) {
+    return (el: HTMLSpanElement | null) => {
+      if (!el) return;
+      const isTrunc = el.scrollWidth > el.clientWidth + 1;
+      setTruncatedMap((prev) => (prev[id] === isTrunc ? prev : { ...prev, [id]: isTrunc }));
+    };
   }
 
   function resetLegacyFlow() {
@@ -1154,8 +1166,15 @@ export default function Home() {
     <>
       {!bannerDismissed && announcements[0] && (
         <div className="mibu-announcement-banner">
-          <span className="mibu-announcement-banner-icon"><Bell size={15} /></span>
-          <span className="mibu-announcement-banner-text">{announcements[0].content}</span>
+          <span className="mibu-announcement-banner-spacer" aria-hidden="true" />
+          <span className="mibu-announcement-banner-text-wrap">
+            <span className="mibu-announcement-banner-text" ref={measureTruncation(`banner-${announcements[0].id}`)}>
+              {announcements[0].content}
+            </span>
+            {truncatedMap[`banner-${announcements[0].id}`] && (
+              <span className="mibu-announcement-more" onClick={() => setAnnouncementModal(announcements[0])}>more</span>
+            )}
+          </span>
           <button className="mibu-announcement-banner-close" aria-label="關閉公告" onClick={() => setBannerDismissed(true)}>
             <X size={16} />
           </button>
@@ -1208,7 +1227,14 @@ export default function Home() {
                         announcements.map((a) => (
                           <div key={a.id} className="mibu-announcement-panel-item">
                             <div className="mibu-announcement-panel-date">{new Date(a.createdAt).toLocaleString("zh-TW")}</div>
-                            <div className="mibu-announcement-panel-content">{a.content}</div>
+                            <div className="mibu-announcement-panel-content-row">
+                              <span className="mibu-announcement-panel-content" ref={measureTruncation(`bell-${a.id}`)}>
+                                {a.content}
+                              </span>
+                              {truncatedMap[`bell-${a.id}`] && (
+                                <span className="mibu-announcement-more" onClick={() => setAnnouncementModal(a)}>more</span>
+                              )}
+                            </div>
                           </div>
                         ))
                       )}
@@ -1498,7 +1524,7 @@ export default function Home() {
           </div>
 
           <main className="main" style={{ flex: 1, minWidth: 0, padding: "20px 24px" }}>
-            {!isAccountArea && view !== "cart" && renderBreadcrumb()}
+            {!isAccountArea && view !== "cart" && view !== "checkout" && renderBreadcrumb()}
 
             {view === "plans" && (
               <div>
@@ -1956,7 +1982,13 @@ export default function Home() {
 
             {view === "checkout" && (
               <div>
-                <a className="auth-back-link" onClick={openCart}>← 返回購物車</a>
+                {checkoutNotice && (
+                  <div className="checkout-notice-box">
+                    <span className="checkout-notice-icon" aria-hidden="true">ℹ</span>
+                    <span>{checkoutNotice}</span>
+                  </div>
+                )}
+                <a className="checkout-back-link" onClick={openCart}><span aria-hidden="true">←</span>返回購物車</a>
                 <h2 className="section-title">結帳</h2>
 
                 {(() => {
@@ -2187,6 +2219,21 @@ export default function Home() {
         <div className="lightbox show" onClick={() => setLightboxUrl(null)}>
           <span className="lightbox-close" onClick={() => setLightboxUrl(null)}>&times;</span>
           <img src={lightboxUrl} className="lightbox-img" alt="放大檢視" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {announcementModal && (
+        <div className="announcement-modal-overlay" onClick={() => setAnnouncementModal(null)}>
+          <div className="announcement-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="announcement-modal-head">
+              <span className="announcement-modal-title">公告內容</span>
+              <button className="announcement-modal-close" aria-label="關閉" onClick={() => setAnnouncementModal(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="announcement-modal-date">{new Date(announcementModal.createdAt).toLocaleString("zh-TW")}</div>
+            <div className="announcement-modal-content">{announcementModal.content}</div>
+          </div>
         </div>
       )}
     </>

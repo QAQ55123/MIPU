@@ -94,6 +94,9 @@ export default function AdminPage() {
   const [newAnnouncementContent, setNewAnnouncementContent] = useState("");
   const [announcementMsg, setAnnouncementMsg] = useState("");
   const [announcementPosting, setAnnouncementPosting] = useState(false);
+  const [checkoutNoticeInput, setCheckoutNoticeInput] = useState("");
+  const [checkoutNoticeMsg, setCheckoutNoticeMsg] = useState("");
+  const [checkoutNoticeSaving, setCheckoutNoticeSaving] = useState(false);
 
   // 舊會員確認：資料匯入
   const [identitiesFile, setIdentitiesFile] = useState<File | null>(null);
@@ -154,6 +157,7 @@ export default function AdminPage() {
         loadLegacyRequests();
         loadLegacyUnmatchedOrders();
         loadAnnouncements();
+        loadCheckoutNotice();
       }
     }
   }, [unlocked, currentRole]);
@@ -824,6 +828,30 @@ export default function AdminPage() {
       loadAnnouncements();
     } catch (e: any) {
       setAnnouncementMsg("失敗：" + e.message);
+    }
+  }
+
+  async function loadCheckoutNotice() {
+    try {
+      const r = await fetch("/api/admin/site-settings", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setCheckoutNoticeInput(d.checkoutNotice || "");
+    } catch {
+      setCheckoutNoticeMsg("載入失敗");
+    }
+  }
+
+  async function saveCheckoutNotice() {
+    setCheckoutNoticeSaving(true);
+    setCheckoutNoticeMsg("");
+    try {
+      await callJson("/api/admin/site-settings", "PATCH", { key: "checkout_notice", value: checkoutNoticeInput.trim() });
+      setCheckoutNoticeMsg("已儲存。");
+    } catch (e: any) {
+      setCheckoutNoticeMsg("失敗：" + e.message);
+    } finally {
+      setCheckoutNoticeSaving(false);
     }
   }
 
@@ -1773,6 +1801,22 @@ export default function AdminPage() {
 
           {activeSection === "announcements" && currentRole === "owner" && (
             <>
+        <div className="auth-card">
+          <h3>結帳頁說明欄</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            顯示在結帳頁面最上方（返回購物車上面），留空就不顯示。可以用來放取付/匯款相關的提醒事項。
+          </p>
+          <textarea
+            value={checkoutNoticeInput}
+            onChange={(e) => setCheckoutNoticeInput(e.target.value)}
+            rows={2}
+            style={{ width: "100%", marginTop: 8, padding: 8, border: "1px solid #EDE9DC", borderRadius: 8, fontFamily: "inherit", fontSize: 14, resize: "vertical" }}
+            placeholder="留空表示不顯示"
+          />
+          <div style={{ fontSize: 13, margin: "6px 0" }}>{checkoutNoticeMsg}</div>
+          <button className="btn small" onClick={saveCheckoutNotice} disabled={checkoutNoticeSaving}>{checkoutNoticeSaving ? "儲存中…" : "儲存"}</button>
+        </div>
+
         <div className="auth-card">
           <h3>發佈新公告</h3>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
