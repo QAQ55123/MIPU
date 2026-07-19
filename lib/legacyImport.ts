@@ -116,9 +116,19 @@ export async function importLegacyIdentitiesFromCsv(csvText: string, commit: boo
 async function buildIdentityIndex() {
   const supabase = getSupabaseAdmin();
   const { data: identities } = await supabase.from("legacy_identities").select("*");
+
+  // 已經被認領的身份，補上目前會員的帳號/個人頁，讓「先認領後補訂單」也能正確配對
+  const claimedIds = (identities || []).map((d) => d.claimed_by_member_id).filter(Boolean);
+  let memberMap = new Map<string, any>();
+  if (claimedIds.length) {
+    const { data: members } = await supabase.from("members").select("id, username, profile_url").in("id", claimedIds);
+    memberMap = new Map((members || []).map((m) => [m.id, m]));
+  }
+
   const byFbUrl = new Map<string, any>();
   const byNickname = new Map<string, any[]>();
   for (const id of identities || []) {
+    if (id.claimed_by_member_id) id.claimedMember = memberMap.get(id.claimed_by_member_id) || null;
     if (id.fb_profile_url) byFbUrl.set(norm(id.fb_profile_url).toLowerCase(), id);
     for (const nick of [id.fb_nickname, id.line_nickname, id.discord_nickname, id.dc_account_name]) {
       if (!nick) continue;
@@ -217,12 +227,14 @@ export async function importLegacyOrdersManual(rows: Record<string, any>[], comm
         const { data: existingProduct } = await supabase.from("products").select("id").eq("plan_id", plan.id).eq("name", it.name).eq("style", it.style).maybeSingle();
         if (!existingProduct) await supabase.from("products").insert({ plan_id: plan.id, name: it.name, style: it.style, price: it.unitPrice });
       }
-      const profileUrl = g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
+      const claimedMember = identity?.claimedMember;
+      const targetUsername = claimedMember?.username || g.nickname;
+      const profileUrl = claimedMember?.profile_url || g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
       let order: any = null;
       for (let attempt = 0; attempt < 5; attempt++) {
         const { data, error } = await supabase.from("orders").insert({
           order_no: genOrderNo(), plan_id: plan.id, plan_name_snapshot: g.planName,
-          username: g.nickname, profile_url: profileUrl, payment: g.payment, paid_amount: g.paidAmount,
+          username: targetUsername, profile_url: profileUrl, payment: g.payment, paid_amount: g.paidAmount,
           created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
         }).select().single();
         if (!error) { order = data; break; }
@@ -324,8 +336,9 @@ export async function importLegacySheetTab(sheetId: string, tabName: string, com
           await supabase.from("products").insert({ plan_id: plan.id, name: it.name, style: it.style, price: it.unitPrice, image_url: imageUrl });
         }
       }
-      const profileUrl = g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
-      const usernamePlaceholder = g.nickname || identity?.fb_nickname || identity?.line_nickname || identity?.discord_nickname || "（未知）";
+      const claimedMember = identity?.claimedMember;
+      const profileUrl = claimedMember?.profile_url || g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
+      const usernamePlaceholder = claimedMember?.username || g.nickname || identity?.fb_nickname || identity?.line_nickname || identity?.discord_nickname || "（未知）";
       let order: any = null;
       for (let attempt = 0; attempt < 5; attempt++) {
         const { data, error } = await supabase.from("orders").insert({
