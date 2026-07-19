@@ -34,7 +34,7 @@ export default function AdminPage() {
   const [savingAdminPw, setSavingAdminPw] = useState(false);
   const [savingAdminEmail, setSavingAdminEmail] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "products" | "orders" | "members" | "codes" | "legacy">("account");
+  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "products" | "orders" | "members" | "codes" | "legacy" | "announcements">("account");
   const categoryFormRef = useRef<HTMLDivElement>(null);
   const planFormRef = useRef<HTMLDivElement>(null);
   const [categoryFilterText, setCategoryFilterText] = useState("");
@@ -88,6 +88,12 @@ export default function AdminPage() {
   const [legacyUnmatchedOrders, setLegacyUnmatchedOrders] = useState<any[]>([]);
   const [legacyUnmatchedMsg, setLegacyUnmatchedMsg] = useState("");
   const [legacyReassignTarget, setLegacyReassignTarget] = useState<Record<string, string>>({});
+
+  // 公告管理
+  const [announcementsList, setAnnouncementsList] = useState<any[]>([]);
+  const [newAnnouncementContent, setNewAnnouncementContent] = useState("");
+  const [announcementMsg, setAnnouncementMsg] = useState("");
+  const [announcementPosting, setAnnouncementPosting] = useState(false);
 
   // 舊會員確認：資料匯入
   const [identitiesFile, setIdentitiesFile] = useState<File | null>(null);
@@ -147,6 +153,7 @@ export default function AdminPage() {
         loadLegacyIdentities();
         loadLegacyRequests();
         loadLegacyUnmatchedOrders();
+        loadAnnouncements();
       }
     }
   }, [unlocked, currentRole]);
@@ -783,6 +790,43 @@ export default function AdminPage() {
     }
   }
 
+  async function loadAnnouncements() {
+    try {
+      const r = await fetch("/api/admin/announcements", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      setAnnouncementsList(d.announcements || []);
+    } catch {
+      setAnnouncementMsg("載入失敗");
+    }
+  }
+
+  async function postAnnouncement() {
+    if (!newAnnouncementContent.trim()) { setAnnouncementMsg("請輸入公告內容"); return; }
+    setAnnouncementPosting(true);
+    setAnnouncementMsg("");
+    try {
+      await callJson("/api/admin/announcements", "POST", { content: newAnnouncementContent.trim() });
+      setNewAnnouncementContent("");
+      setAnnouncementMsg("已發佈。");
+      loadAnnouncements();
+    } catch (e: any) {
+      setAnnouncementMsg("失敗：" + e.message);
+    } finally {
+      setAnnouncementPosting(false);
+    }
+  }
+
+  async function deleteAnnouncement(id: string) {
+    if (!confirm("確定要刪除這則公告嗎？")) return;
+    try {
+      await callJson("/api/admin/announcements", "DELETE", { id });
+      loadAnnouncements();
+    } catch (e: any) {
+      setAnnouncementMsg("失敗：" + e.message);
+    }
+  }
+
   async function submitIdentitiesFile(commit: boolean) {
     if (!identitiesFile) return;
     setIdentitiesImporting(true);
@@ -989,6 +1033,7 @@ export default function AdminPage() {
               <div className={`account-nav-item ${activeSection === "members" ? "active" : ""}`} onClick={() => setActiveSection("members")}>會員管理</div>
               <div className={`account-nav-item ${activeSection === "codes" ? "active" : ""}`} onClick={() => setActiveSection("codes")}>邀請碼管理</div>
               <div className={`account-nav-item ${activeSection === "legacy" ? "active" : ""}`} onClick={() => setActiveSection("legacy")}>舊會員確認</div>
+              <div className={`account-nav-item ${activeSection === "announcements" ? "active" : ""}`} onClick={() => setActiveSection("announcements")}>公告管理</div>
             </>
           )}
         </aside>
@@ -1722,6 +1767,43 @@ export default function AdminPage() {
             </div>
           ))}
           <div style={{ fontSize: 13, marginTop: 6 }}>{legacyUnmatchedMsg}</div>
+        </div>
+            </>
+          )}
+
+          {activeSection === "announcements" && currentRole === "owner" && (
+            <>
+        <div className="auth-card">
+          <h3>發佈新公告</h3>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            會顯示在首頁最上方（使用者可以關掉，但下次進來會再出現），也會出現在鈴鐺圖示的公告清單最上面。
+          </p>
+          <textarea
+            value={newAnnouncementContent}
+            onChange={(e) => setNewAnnouncementContent(e.target.value)}
+            rows={3}
+            style={{ width: "100%", marginTop: 8, padding: 8, border: "1px solid #EDE9DC", borderRadius: 8, fontFamily: "inherit", fontSize: 14, resize: "vertical" }}
+            placeholder="輸入公告內容…"
+          />
+          <div style={{ fontSize: 13, margin: "6px 0" }}>{announcementMsg}</div>
+          <button className="btn" onClick={postAnnouncement} disabled={announcementPosting}>{announcementPosting ? "發佈中…" : "發佈公告"}</button>
+        </div>
+
+        <div className="auth-card">
+          <h3>公告歷史紀錄</h3>
+          {announcementsList.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>還沒有發佈過任何公告</div>}
+          {announcementsList.map((a, idx) => (
+            <div key={a.id} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  {idx === 0 && <span style={{ fontSize: 11, background: "#FDF6EC", color: "#B08E5A", borderRadius: 999, padding: "2px 8px", marginRight: 6 }}>目前顯示中</span>}
+                  <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>{new Date(a.createdAt).toLocaleString("zh-TW")}</div>
+                  <div style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{a.content}</div>
+                </div>
+                <button className="btn small danger" onClick={() => deleteAnnouncement(a.id)} style={{ flexShrink: 0 }}>刪除</button>
+              </div>
+            </div>
+          ))}
         </div>
             </>
           )}

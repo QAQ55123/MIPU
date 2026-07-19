@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useRef, useMemo } from "react";
-import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight, Heart } from "lucide-react";
+import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight, Heart, Bell } from "lucide-react";
 
 type Category = { id: string; name: string; parentId: string | null };
 type Plan = {
@@ -170,9 +170,14 @@ export default function Home() {
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all"); // all | purchased | shipping | arrived | distributing
   const [historyCancelFilter, setHistoryCancelFilter] = useState<string>("all"); // all | normal | pending
   const [remitOnlyMode, setRemitOnlyMode] = useState(false); // true＝這個瀏覽器只能用匯款，取付選項完全不顯示（透過 ?pay=remit 連結進入後記住）
+  const [announcements, setAnnouncements] = useState<{ id: string; content: string; createdAt: string }[]>([]);
+  const [announcementPanelOpen, setAnnouncementPanelOpen] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const announcementWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/categories", { cache: "no-store" }).then((r) => r.json()).then((d) => setCategories(d.categories || []));
+    fetch("/api/announcements", { cache: "no-store" }).then((r) => r.json()).then((d) => setAnnouncements(d.announcements || [])).catch(() => {});
 
     const params = new URLSearchParams(window.location.search);
 
@@ -224,6 +229,16 @@ export default function Home() {
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (announcementWrapRef.current && !announcementWrapRef.current.contains(e.target as Node)) {
+        setAnnouncementPanelOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
   function showToast(msg: string) {
@@ -1137,6 +1152,14 @@ export default function Home() {
 
   return (
     <>
+      {!bannerDismissed && announcements[0] && (
+        <div className="mibu-announcement-banner">
+          <span className="mibu-announcement-banner-text">{announcements[0].content}</span>
+          <button className="mibu-announcement-banner-close" aria-label="關閉公告" onClick={() => setBannerDismissed(true)}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
       <header className="mibu-header">
         <div className="mibu-header-inner">
           {!searchOpen && (
@@ -1171,6 +1194,26 @@ export default function Home() {
                 <button className="mibu-icon-btn mibu-search-icon-mobile" aria-label="搜尋" onClick={() => setSearchOpen(true)}>
                   <Search size={19} />
                 </button>
+                <div className="mibu-hover-wrap" ref={announcementWrapRef}>
+                  <button className="mibu-icon-btn" aria-label="公告" onClick={() => setAnnouncementPanelOpen((v) => !v)}>
+                    <Bell size={19} />
+                  </button>
+                  {announcementPanelOpen && (
+                    <div className="mibu-announcement-panel">
+                      <div className="mibu-hover-panel-title">最新公告</div>
+                      {announcements.length === 0 ? (
+                        <div className="mibu-hover-panel-empty">目前沒有公告</div>
+                      ) : (
+                        announcements.map((a) => (
+                          <div key={a.id} className="mibu-announcement-panel-item">
+                            <div className="mibu-announcement-panel-date">{new Date(a.createdAt).toLocaleString("zh-TW")}</div>
+                            <div className="mibu-announcement-panel-content">{a.content}</div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="mibu-hover-wrap">
                   <button className="mibu-icon-btn" aria-label="會員／我的訂單" onClick={openHistory}>
                     <UserCircle size={19} />

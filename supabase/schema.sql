@@ -184,3 +184,11 @@ create index if not exists idx_legacy_claim_requests_status on legacy_claim_requ
 
 alter table orders add column if not exists legacy_identity_id uuid;
 create index if not exists idx_orders_legacy_identity on orders (legacy_identity_id);
+
+-- 公告：可發佈多條，保留歷史紀錄
+create table if not exists announcements (
+  id          uuid primary key default gen_random_uuid(),
+  content     text not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists idx_announcements_created_at on announcements (created_at desc);

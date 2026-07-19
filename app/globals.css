@@ -302,6 +302,29 @@ html, body {
 .mibu-hover-panel-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; color: var(--muted); }
 .mibu-hover-panel-empty { color: var(--muted); }
 
+.mibu-announcement-banner {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  background: #FDF6EC; border-bottom: 1px solid var(--line); padding: 10px 44px 10px 16px;
+  position: relative; font-size: 13px; color: var(--text); text-align: center;
+}
+.mibu-announcement-banner-text { line-height: 1.5; }
+.mibu-announcement-banner-close {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; color: var(--muted); display: flex; padding: 4px;
+}
+.mibu-announcement-banner-close:hover { color: var(--text); }
+
+.mibu-announcement-panel {
+  display: block; position: absolute; top: 100%; right: -8px; margin-top: 10px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.08); padding: 14px; width: 280px; max-height: 360px; overflow-y: auto;
+  z-index: 50; font-size: 14px; color: var(--text);
+}
+.mibu-announcement-panel-item { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.mibu-announcement-panel-item:last-child { border-bottom: none; }
+.mibu-announcement-panel-date { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.mibu-announcement-panel-content { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+
 .account-nav-item {
   display: flex; align-items: center; font-size: 14.5px; color: var(--text);
   padding: 9px 8px; border-radius: 8px; cursor: pointer; font-weight: 500;
