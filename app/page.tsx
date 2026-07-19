@@ -85,6 +85,16 @@ export default function Home() {
   const [legacySubmitting, setLegacySubmitting] = useState(false);
   const [legacyClaimedOrders, setLegacyClaimedOrders] = useState(0);
 
+  // 帳號設定：已登入會員連結舊訂單
+  const [linkStep, setLinkStep] = useState<"input" | "confirm" | "notfound" | "requestSent">("input");
+  const [linkNickname, setLinkNickname] = useState("");
+  const [linkCandidates, setLinkCandidates] = useState<{ id: string; profileUrl: string; nicknames: string[] }[]>([]);
+  const [linkSelectedId, setLinkSelectedId] = useState<string | null>(null);
+  const [linkContactNote, setLinkContactNote] = useState("");
+  const [linkMsg, setLinkMsg] = useState("");
+  const [linkSubmitting, setLinkSubmitting] = useState(false);
+  const [linkClaimedOrders, setLinkClaimedOrders] = useState(0);
+
   function syncUrl(params: Record<string, string>) {
     if (restoringFromHistoryRef.current) return;
     const qs = new URLSearchParams(params).toString();
@@ -159,11 +169,21 @@ export default function Home() {
   const [historySearch, setHistorySearch] = useState("");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all"); // all | purchased | shipping | arrived | distributing
   const [historyCancelFilter, setHistoryCancelFilter] = useState<string>("all"); // all | normal | pending
+  const [remitOnlyMode, setRemitOnlyMode] = useState(false); // true＝這個瀏覽器只能用匯款，取付選項完全不顯示（透過 ?pay=remit 連結進入後記住）
 
   useEffect(() => {
     fetch("/api/categories", { cache: "no-store" }).then((r) => r.json()).then((d) => setCategories(d.categories || []));
 
     const params = new URLSearchParams(window.location.search);
+
+    // ?pay=remit 進來的話，記住這個瀏覽器只能用匯款；?pay=all 可以取消這個限制
+    const payParam = params.get("pay");
+    try {
+      if (payParam === "remit") window.localStorage.setItem("mibu_remit_only", "1");
+      else if (payParam === "all") window.localStorage.removeItem("mibu_remit_only");
+      setRemitOnlyMode(window.localStorage.getItem("mibu_remit_only") === "1");
+    } catch {}
+
     const verify = params.get("verify");
     if (verify === "success") setVerifyBannerMsg("信箱驗證成功！");
     else if (verify === "invalid") setVerifyBannerMsg("驗證連結無效或已過期。");
@@ -172,7 +192,7 @@ export default function Home() {
       setAuthTab("login");
       setView("identity");
     }
-    if (verify || openLogin) window.history.replaceState({}, "", window.location.pathname);
+    if (verify || openLogin || payParam) window.history.replaceState({}, "", window.location.pathname);
 
     // 先確認有沒有保持登入的 session（重新整理網頁不會登出），確認完才還原網址對應的畫面
     fetch("/api/auth/session", { cache: "no-store" })
@@ -453,6 +473,79 @@ export default function Home() {
     }
   }
 
+  function resetLinkFlow() {
+    setLinkStep("input");
+    setLinkNickname("");
+    setLinkCandidates([]);
+    setLinkSelectedId(null);
+    setLinkContactNote("");
+    setLinkMsg("");
+  }
+
+  async function onLinkLookup() {
+    setLinkMsg("");
+    if (!linkNickname.trim()) return setLinkMsg("請輸入暱稱");
+    setLinkSubmitting(true);
+    try {
+      const r = await fetch(`/api/auth/legacy-lookup?nickname=${encodeURIComponent(linkNickname.trim())}`);
+      const d = await r.json();
+      if (!r.ok) return setLinkMsg(d.error || "查詢失敗");
+      if (d.alreadyRegistered) { setLinkMsg("這個暱稱已經對應到另一個帳號了，如果那是你本人的另一組帳號，這邊沒辦法自動合併，麻煩聯絡管理者協助處理。"); return; }
+      if (!d.found) { setLinkStep("notfound"); return; }
+      setLinkCandidates(d.candidates);
+      setLinkSelectedId(d.candidates.length === 1 ? d.candidates[0].id : null);
+      setLinkStep("confirm");
+    } catch {
+      setLinkMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLinkSubmitting(false);
+    }
+  }
+
+  async function onLinkConfirm() {
+    setLinkMsg("");
+    if (!linkSelectedId) return setLinkMsg("請先選擇是你的哪一筆資料");
+    setLinkSubmitting(true);
+    try {
+      const r = await fetch("/api/auth/legacy-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identityId: linkSelectedId }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setLinkMsg(d.error || "連結失敗");
+      setLinkClaimedOrders(d.claimedOrders || 0);
+      setLinkMsg(d.syncWarning || `連結成功！已經把 ${d.claimedOrders || 0} 筆舊訂單轉移到這個帳號，去「歷史訂單」就能看到了。`);
+      setLinkStep("input");
+      setLinkNickname("");
+      setLinkCandidates([]);
+      setLinkSelectedId(null);
+    } catch {
+      setLinkMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLinkSubmitting(false);
+    }
+  }
+
+  async function onLinkClaimRequest() {
+    setLinkMsg("");
+    setLinkSubmitting(true);
+    try {
+      const r = await fetch("/api/auth/legacy-claim-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: linkNickname.trim(), contactNote: linkContactNote.trim() || `（已有帳號：${identity?.username}）` }),
+      });
+      const d = await r.json();
+      if (!r.ok) return setLinkMsg(d.error || "送出失敗");
+      setLinkStep("requestSent");
+    } catch {
+      setLinkMsg("網路連線失敗，請再試一次");
+    } finally {
+      setLinkSubmitting(false);
+    }
+  }
+
   function afterAuthSuccess(id: Identity) {
     const action = pendingAction;
     setPendingAction(null);
@@ -708,7 +801,7 @@ export default function Home() {
     const errors: string[] = [];
     for (const planId of planIds) {
       const groupItems = selectedEntries.filter((e) => e.planId === planId);
-      const payment = checkoutPaymentByPlan[planId] || "匯款";
+      const payment = remitOnlyMode ? "匯款" : (checkoutPaymentByPlan[planId] || "匯款");
       try {
         const r = await fetch("/api/orders", {
           method: "POST",
@@ -1606,7 +1699,7 @@ export default function Home() {
                               e.stopPropagation();
                               openPlan({ id: o.planId } as Plan);
                             }}
-                            title={o.planId ? "點擊查看這個企劃" : "企劃已經被刪除，無法查看"}
+                            title={o.planId ? "點擊查看這個企劃" : "這個企劃無法查看（已刪除或資料不完整）"}
                           >
                             {o.planName}
                           </span>
@@ -1838,11 +1931,11 @@ export default function Home() {
                         const planName = live?.name || entries[0].planName;
                         const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
                         const codLimit = live?.codLimit || 0;
-                        const codOffered = codLimit > 0;
+                        const codOffered = !remitOnlyMode && codLimit > 0;
                         const codOverLimit = codOffered && groupTotal > codLimit;
                         const codDisabled = !codOffered || codOverLimit;
                         const rawPayment = checkoutPaymentByPlan[planId] || "匯款";
-                        const payment = rawPayment === "取付" && codDisabled ? "匯款" : rawPayment;
+                        const payment = (remitOnlyMode || (rawPayment === "取付" && codDisabled)) ? "匯款" : rawPayment;
                         return (
                           <div key={planId} className="cart-group">
                             <div className="cart-group-header">
@@ -1862,7 +1955,7 @@ export default function Home() {
                               <div className="cart-checkout-payment">
                                 <div className="id-label" style={{ marginBottom: 6 }}>這個企劃的交易方式</div>
                                 <div className="source-btns">
-                                  {["匯款", "取付"].map((p) => (
+                                  {(remitOnlyMode ? ["匯款"] : ["匯款", "取付"]).map((p) => (
                                     <button
                                       key={p}
                                       className={`src-btn ${payment === p ? "active" : ""}`}
@@ -1873,7 +1966,7 @@ export default function Home() {
                                     </button>
                                   ))}
                                 </div>
-                                {codOverLimit && (
+                                {!remitOnlyMode && codOverLimit && (
                                   <div style={{ color: "#B3261E", fontSize: 12, marginTop: 6 }}>
                                     取付金額超過上限（NT$ {fmt(codLimit)}），請改用匯款或減少數量
                                   </div>
@@ -1960,6 +2053,83 @@ export default function Home() {
                   </div>
                   <div className="auth-msg">{accountMsg}</div>
                   <button className="btn" onClick={changeAccountPassword} disabled={accountSaving}>{accountSaving ? "儲存中…" : "更新密碼"}</button>
+                </div>
+
+                <div className="auth-card">
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>連結舊訂單資料</h3>
+                  <p style={{ fontSize: 12, color: "#8A8779", margin: "0 0 8px" }}>
+                    如果你以前用別的暱稱下過單、但一開始不小心直接註冊了新帳號，可以在這裡把舊訂單連結到現在這個帳號。
+                  </p>
+
+                  {linkStep === "input" && (
+                    <>
+                      <div className="id-row">
+                        <span className="id-label">舊暱稱</span>
+                        <input
+                          type="text"
+                          value={linkNickname}
+                          onChange={(e) => setLinkNickname(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && onLinkLookup()}
+                          placeholder="以前用的 FB／LINE／Discord 暱稱"
+                        />
+                        <button className="btn small" onClick={onLinkLookup} disabled={linkSubmitting}>{linkSubmitting ? "查詢中…" : "查詢"}</button>
+                      </div>
+                      <div className="auth-msg">{linkMsg}</div>
+                    </>
+                  )}
+
+                  {linkStep === "notfound" && (
+                    <div>
+                      <p style={{ color: "#6B6858", fontSize: 13, marginBottom: 10 }}>
+                        在舊資料裡找不到符合「{linkNickname}」的紀錄。可以按下面的按鈕請管理者協助確認。
+                      </p>
+                      <div className="id-row">
+                        <span className="id-label">補充說明</span>
+                        <input type="text" value={linkContactNote} onChange={(e) => setLinkContactNote(e.target.value)} placeholder="選填，例如以前買過什麼" />
+                      </div>
+                      <div className="auth-msg">{linkMsg}</div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn small" onClick={onLinkClaimRequest} disabled={linkSubmitting}>{linkSubmitting ? "送出中…" : "請管理者協助確認"}</button>
+                        <button className="src-btn" onClick={resetLinkFlow}>重新輸入</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {linkStep === "requestSent" && (
+                    <div>
+                      <p style={{ color: "#6B6858", fontSize: 13 }}>已經送出，請等待管理者協助確認。</p>
+                      <button className="btn small" onClick={resetLinkFlow}>回上一步</button>
+                    </div>
+                  )}
+
+                  {linkStep === "confirm" && (
+                    <div>
+                      <p style={{ color: "#6B6858", fontSize: 13, marginBottom: 10 }}>
+                        {linkCandidates.length > 1 ? "找到好幾筆符合的資料，請選出是你的那一筆：" : "找到符合的資料，這是你嗎？"}
+                      </p>
+                      {linkCandidates.map((c) => (
+                        <label
+                          key={c.id}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", marginBottom: 8,
+                            border: `1px solid ${linkSelectedId === c.id ? "var(--primary)" : "var(--line)"}`,
+                            borderRadius: 8, cursor: "pointer", background: linkSelectedId === c.id ? "#FDF6EC" : "transparent",
+                          }}
+                        >
+                          <input type="radio" name="linkCandidate" checked={linkSelectedId === c.id} onChange={() => setLinkSelectedId(c.id)} />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 13, color: "var(--muted)" }}>{c.nicknames.join(" / ") || "(無暱稱)"}</div>
+                            <a href={c.profileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, wordBreak: "break-all" }}>{c.profileUrl}</a>
+                          </div>
+                        </label>
+                      ))}
+                      <div className="auth-msg">{linkMsg}</div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn small" onClick={onLinkConfirm} disabled={!linkSelectedId || linkSubmitting}>{linkSubmitting ? "連結中…" : "是我，連結到這個帳號"}</button>
+                        <button className="src-btn" onClick={resetLinkFlow}>不是我／重新輸入</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

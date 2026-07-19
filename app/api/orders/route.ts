@@ -145,7 +145,7 @@ export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
   const { data: orders, error } = await supabase
     .from("orders")
-    .select("*, plans(name, image_url, deadline, fulfillment_status), order_items(*)")
+    .select("*, plans(name, image_url, deadline, fulfillment_status, is_legacy_archive), order_items(*)")
     .ilike("username", username)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -153,7 +153,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     orders: (orders || []).map((o: any) => ({
       orderNo: o.order_no,
-      planId: o.plan_id || null,
+      planId: o.plan_id && !o.plans?.is_legacy_archive ? o.plan_id : null,
       planName: o.plan_name_snapshot || o.plans?.name || "（企劃已刪除）",
       planImage: o.plans?.image_url,
       username: o.username,

@@ -166,12 +166,12 @@ async function buildIdentityIndex() {
 async function findOrCreateArchivedPlan(planCache: Map<string, any>, planName: string, orderDate: Date, commit: boolean) {
   if (planCache.has(planName)) return planCache.get(planName);
   const supabase = getSupabaseAdmin();
-  const { data: existing } = await supabase.from("plans").select("*").eq("name", planName).eq("hide_after_days", 0).maybeSingle();
+  const { data: existing } = await supabase.from("plans").select("*").eq("name", planName).eq("is_legacy_archive", true).maybeSingle();
   let plan = existing;
   if (!plan && commit) {
     const { data: created, error } = await supabase
       .from("plans")
-      .insert({ name: planName, deadline: orderDate.toISOString(), hide_after_days: 0, fulfillment_status: "purchased" })
+      .insert({ name: planName, deadline: orderDate.toISOString(), hide_after_days: 0, fulfillment_status: "purchased", is_legacy_archive: true })
       .select()
       .single();
     if (error) throw new Error("建立封存企劃失敗：" + error.message);

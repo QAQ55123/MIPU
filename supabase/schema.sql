@@ -61,6 +61,7 @@ create table if not exists plans (
   promo_images  text[] default '{}',         -- 宣傳圖（可多張），顯示在商品頁最上方
   hide_after_days   int,                     -- 截止後幾天要從瀏覽清單隱藏（留空＝永遠不自動隱藏）
   fulfillment_status text,                   -- 企劃目前狀態：purchased 已購買／shipping 運輸中／arrived 已到貨／distributing 已開賣場（留空＝尚未開始）
+  is_legacy_archive boolean not null default false, -- true＝舊資料匯入建立的封存企劃（商品目錄不完整，前台不可點擊進入）
   sort_order    int default 0,
   created_at    timestamptz default now()
 );
