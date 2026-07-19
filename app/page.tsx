@@ -682,7 +682,15 @@ export default function Home() {
   const filteredHistory = useMemo(() => {
     const kw = historySearch.trim().toLowerCase();
     return history.filter((o: any) => {
-      if (kw && !String(o.orderNo || "").toLowerCase().includes(kw)) return false;
+      if (kw) {
+        const orderNoMatch = String(o.orderNo || "").toLowerCase().includes(kw);
+        const planNameMatch = String(o.planName || "").toLowerCase().includes(kw);
+        const itemMatch = (o.items || []).some((it: any) =>
+          String(it.name || "").toLowerCase().includes(kw) ||
+          String(it.style || "").toLowerCase().includes(kw)
+        );
+        if (!orderNoMatch && !planNameMatch && !itemMatch) return false;
+      }
       if (historyStatusFilter !== "all" && o.fulfillmentStatus !== historyStatusFilter) return false;
       if (historyCancelFilter === "pending" && !o.cancelRequested) return false;
       if (historyCancelFilter === "normal" && o.cancelRequested) return false;
@@ -1306,7 +1314,7 @@ export default function Home() {
                       <Search size={16} className="hist-search-icon" />
                       <input
                         type="text"
-                        placeholder="搜尋訂單編號"
+                        placeholder="搜尋訂單編號／企劃名稱／商品"
                         value={historySearch}
                         onChange={(e) => setHistorySearch(e.target.value)}
                         className="hist-search-input"
