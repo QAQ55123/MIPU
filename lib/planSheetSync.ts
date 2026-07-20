@@ -15,7 +15,7 @@ function sleep(ms: number) {
 }
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  const maxAttempts = 4;
+  const maxAttempts = 2;
   let lastErr: any;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
@@ -23,8 +23,9 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
     } catch (e: any) {
       lastErr = e;
       const isQuotaError = /quota exceeded|resource_exhausted|rate limit/i.test(String(e?.message || ""));
-      // 配額被 Google 打回來的話要等久一點（每分鐘配額，等短時間重試沒用），一般錯誤維持原本短暫重試即可
-      const delay = isQuotaError ? 15000 * (attempt + 1) : 800;
+      // Google 的配額是「每分鐘」重置，等短短幾秒重試沒有意義，直接等滿 65 秒確保跨過重置時間點；
+      // 一般非配額錯誤維持原本的短暫重試即可
+      const delay = isQuotaError ? 65000 : 800;
       if (attempt < maxAttempts - 1) await sleep(delay);
     }
   }
@@ -121,7 +122,7 @@ export async function syncAllPlanOrderTabs() {
   const failedPlans: string[] = [];
   for (const p of plans) {
     try {
-      await syncOnePlanOrderTab(p.id, p.name);
+      await withRetry(() => syncOnePlanOrderTab(p.id, p.name));
     } catch (e: any) {
       // 單一企劃同步失敗不該擋住其他企劃，記下來繼續跑下一個
       failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
@@ -387,9 +388,9 @@ export async function syncCostWorkbook() {
   for (const p of plans) {
     try {
       const tabName = safeTabName(p.name);
-      const agg = await aggregatePlanFromSheet(tabName);
+      const agg = await withRetry(() => aggregatePlanFromSheet(tabName));
       if (agg.products.length === 0) continue; // 這個企劃還沒有商品，略過
-      await updateCostTab(costId, tabName, agg);
+      await withRetry(() => updateCostTab(costId, tabName, agg));
       const N = agg.products.length;
       summaryRows.push({ name: p.name, tab: tabName, incomeRow: N + 12, costRow: N + 13, profitRow: N + 15 });
     } catch (e: any) {

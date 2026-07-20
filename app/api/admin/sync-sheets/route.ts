@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { requireOwnerSession } from "@/lib/adminAuth";
 import { syncAllOrdersSheet, syncMembersSheet, syncPlansSheet, syncProductsSheet, syncAllOrdersCostSheet } from "@/lib/sheetsSync";
 
+// 企劃一多、又遇到 Google API 配額重試等待，整個完整同步可能要跑比較久，
+// 盡量跟 Vercel 要長一點的執行時間上限（免費方案上限較低，這裡設定不影響方案本身的硬上限）
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   try {
     requireOwnerSession(req);
