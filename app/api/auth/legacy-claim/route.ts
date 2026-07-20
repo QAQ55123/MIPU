@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   const email = String(body.email || "").trim().toLowerCase();
 
   if (!identityId) return NextResponse.json({ error: "缺少身份資訊，請重新操作一次" }, { status: 400 });
-  if (username.length < 3) return NextResponse.json({ error: "帳號至少要 3 個字" }, { status: 400 });
+  if (username.length < 1) return NextResponse.json({ error: "請輸入帳號" }, { status: 400 });
   if (password.length < 6) return NextResponse.json({ error: "密碼至少要 6 個字" }, { status: 400 });
   if (password !== confirmPassword) return NextResponse.json({ error: "兩次輸入的密碼不一樣" }, { status: 400 });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "請輸入有效的 Email" }, { status: 400 });

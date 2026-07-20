@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const inviteCode = String(body.inviteCode || "").trim();
 
   if (!inviteCode) return NextResponse.json({ error: "請輸入邀請碼" }, { status: 400 });
-  if (username.length < 3) return NextResponse.json({ error: "帳號至少要 3 個字" }, { status: 400 });
+  if (username.length < 1) return NextResponse.json({ error: "請輸入帳號" }, { status: 400 });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "請輸入有效的 Email" }, { status: 400 });
   if (password.length < 8) return NextResponse.json({ error: "密碼至少要 8 個字" }, { status: 400 });
 

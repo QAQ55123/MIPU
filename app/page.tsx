@@ -358,7 +358,7 @@ export default function Home() {
 
   async function onRegister() {
     setAuthMsg("");
-    if (regUsername.trim().length < 3) return setAuthMsg("帳號至少要 3 個字");
+    if (regUsername.trim().length < 1) return setAuthMsg("請輸入帳號");
     if (regPassword.length < 6) return setAuthMsg("密碼至少要 6 個字");
     if (regPassword !== regConfirmPassword) return setAuthMsg("兩次輸入的密碼不一樣");
     if (!regProfileUrl.trim()) return setAuthMsg("請填寫個人頁網址");
@@ -448,7 +448,7 @@ export default function Home() {
   async function onLegacyClaim() {
     setLegacyMsg("");
     if (!legacySelectedId) return setLegacyMsg("請先選擇你的身份");
-    if (legacyUsername.trim().length < 3) return setLegacyMsg("帳號至少要 3 個字");
+    if (legacyUsername.trim().length < 1) return setLegacyMsg("請輸入帳號");
     if (legacyPassword.length < 6) return setLegacyMsg("密碼至少要 6 個字");
     if (legacyPassword !== legacyConfirmPassword) return setLegacyMsg("兩次輸入的密碼不一樣");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyEmail)) return setLegacyMsg("請輸入有效的 Email");
@@ -1365,7 +1365,7 @@ export default function Home() {
                     <h2 className="section-title">建立新帳號</h2>
                     <div className="id-row">
                       <span className="id-label">帳號</span>
-                      <input type="text" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="至少 3 個字" />
+                      <input type="text" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="帳號" />
                     </div>
                     <div className="id-row">
                       <span className="id-label">密碼</span>
@@ -1483,7 +1483,7 @@ export default function Home() {
                         <p style={{ color: "#6B6858", fontSize: 13, marginBottom: 10 }}>設定新帳號密碼，之後就用這組帳密登入。</p>
                         <div className="id-row">
                           <span className="id-label">帳號</span>
-                          <input type="text" value={legacyUsername} onChange={(e) => setLegacyUsername(e.target.value)} placeholder="至少 3 個字，預設沿用你的暱稱" />
+                          <input type="text" value={legacyUsername} onChange={(e) => setLegacyUsername(e.target.value)} placeholder="帳號，預設沿用你的暱稱" />
                         </div>
                         <div className="id-row">
                           <span className="id-label">密碼</span>

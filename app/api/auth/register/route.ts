@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const profileUrlRaw = String(body.profileUrl || "").trim();
   const email = String(body.email || "").trim().toLowerCase();
 
-  if (username.length < 3) return NextResponse.json({ error: "帳號至少要 3 個字" }, { status: 400 });
+  if (username.length < 1) return NextResponse.json({ error: "請輸入帳號" }, { status: 400 });
   if (password.length < 6) return NextResponse.json({ error: "密碼至少要 6 個字" }, { status: 400 });
   if (password !== confirmPassword) return NextResponse.json({ error: "兩次輸入的密碼不一樣" }, { status: 400 });
   if (!profileUrlRaw) return NextResponse.json({ error: "請填寫個人頁網址" }, { status: 400 });
