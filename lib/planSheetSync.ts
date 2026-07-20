@@ -126,7 +126,7 @@ export async function syncAllPlanOrderTabs() {
       // 單一企劃同步失敗不該擋住其他企劃，記下來繼續跑下一個
       failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
     }
-    await sleep(300); // 節流，避免密集寫入短時間內打爆 Google Sheets API 的每分鐘配額
+    await sleep(800); // 節流，避免密集寫入短時間內打爆 Google Sheets API 的每分鐘配額
   }
   if (failedPlans.length > 0) {
     throw new Error(`部分企劃同步失敗（其餘企劃仍已正常同步）：${failedPlans.join("；")}`);
@@ -395,7 +395,7 @@ export async function syncCostWorkbook() {
     } catch (e: any) {
       failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
     }
-    await sleep(300); // 節流，避免密集寫入短時間內打爆 Google Sheets API 的每分鐘配額
+    await sleep(1500); // 節流：成本表每個企劃內部要寫好幾次（企劃分頁+隱藏明細分頁+格式），間隔要拉大一點避免打爆配額
   }
   await buildCostSummary(costId, summaryRows);
   if (failedPlans.length > 0) {
