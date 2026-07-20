@@ -4,7 +4,7 @@ import { Menu, Search, UserCircle, ShoppingCart, X, ChevronDown, ChevronRight, H
 
 type Category = { id: string; name: string; parentId: string | null };
 type Plan = {
-  id: string; name: string; imageUrl?: string; codLimit: number; deadline?: string; closed: boolean;
+  id: string; name: string; imageUrl?: string; codLimit: number; allowCodOnRemitLink?: boolean; deadline?: string; closed: boolean;
   categoryId?: string | null; categoryName?: string | null; categoryParentId?: string | null;
   promoImages?: string[];
 };
@@ -157,7 +157,7 @@ export default function Home() {
     } catch {}
   }, [globalCart]);
 
-  const [cartPlanStatus, setCartPlanStatus] = useState<Record<string, { name: string; deadline: string | null; closed: boolean; codLimit: number; found: boolean }>>({});
+  const [cartPlanStatus, setCartPlanStatus] = useState<Record<string, { name: string; deadline: string | null; closed: boolean; codLimit: number; allowCodOnRemitLink: boolean; found: boolean }>>({});
   const [cartPaymentByPlan, setCartPaymentByPlan] = useState<Record<string, string>>({});
   const [checkoutingPlanId, setCheckoutingPlanId] = useState<string | null>(null);
   const [selectedCartKeys, setSelectedCartKeys] = useState<Set<string>>(new Set());
@@ -169,7 +169,7 @@ export default function Home() {
   const [historySearch, setHistorySearch] = useState("");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all"); // all | purchased | shipping | arrived | distributing
   const [historyCancelFilter, setHistoryCancelFilter] = useState<string>("all"); // all | normal | pending
-  const [remitOnlyMode, setRemitOnlyMode] = useState(false); // true＝這個瀏覽器只能用匯款，取付選項完全不顯示（透過 ?pay=remit 連結進入後記住）
+  const [remitOnlyMode, setRemitOnlyMode] = useState(false); // true＝透過 ?pay=remit 連結進來（記在這個瀏覽器），預設只能匯款；個別企劃如果有勾選「限定連結取付」，取付選項仍會保留
   const [announcements, setAnnouncements] = useState<{ id: string; content: string; createdAt: string }[]>([]);
   const [announcementPanelOpen, setAnnouncementPanelOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -741,9 +741,9 @@ export default function Home() {
       const next = { ...prev };
       for (const [id, plan] of results) {
         if (plan) {
-          next[id] = { name: plan.name, deadline: plan.deadline, closed: plan.closed, codLimit: plan.codLimit || 0, found: true };
+          next[id] = { name: plan.name, deadline: plan.deadline, closed: plan.closed, codLimit: plan.codLimit || 0, allowCodOnRemitLink: !!plan.allowCodOnRemitLink, found: true };
         } else {
-          next[id] = { name: "", deadline: null, closed: true, codLimit: 0, found: false };
+          next[id] = { name: "", deadline: null, closed: true, codLimit: 0, allowCodOnRemitLink: false, found: false };
         }
       }
       return next;
@@ -828,7 +828,8 @@ export default function Home() {
     const errors: string[] = [];
     for (const planId of planIds) {
       const groupItems = selectedEntries.filter((e) => e.planId === planId);
-      const payment = remitOnlyMode ? "匯款" : (checkoutPaymentByPlan[planId] || "匯款");
+      const planAllowsCod = !remitOnlyMode || !!cartPlanStatus[planId]?.allowCodOnRemitLink;
+      const payment = planAllowsCod ? (checkoutPaymentByPlan[planId] || "匯款") : "匯款";
       try {
         const r = await fetch("/api/orders", {
           method: "POST",
@@ -2007,11 +2008,11 @@ export default function Home() {
                         const planName = live?.name || entries[0].planName;
                         const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
                         const codLimit = live?.codLimit || 0;
-                        const codOffered = !remitOnlyMode && codLimit > 0;
+                        const codOffered = codLimit > 0 && (!remitOnlyMode || live?.allowCodOnRemitLink);
                         const codOverLimit = codOffered && groupTotal > codLimit;
                         const codDisabled = !codOffered || codOverLimit;
                         const rawPayment = checkoutPaymentByPlan[planId] || "匯款";
-                        const payment = (remitOnlyMode || (rawPayment === "取付" && codDisabled)) ? "匯款" : rawPayment;
+                        const payment = (rawPayment === "取付" && codDisabled) ? "匯款" : rawPayment;
                         return (
                           <div key={planId} className="cart-group">
                             <div className="cart-group-header">
@@ -2031,7 +2032,7 @@ export default function Home() {
                               <div className="cart-checkout-payment">
                                 <div className="id-label" style={{ marginBottom: 6 }}>這個企劃的交易方式</div>
                                 <div className="source-btns">
-                                  {(remitOnlyMode ? ["匯款"] : ["匯款", "取付"]).map((p) => (
+                                  {(!codOffered ? ["匯款"] : ["匯款", "取付"]).map((p) => (
                                     <button
                                       key={p}
                                       className={`src-btn ${payment === p ? "active" : ""}`}
@@ -2042,7 +2043,7 @@ export default function Home() {
                                     </button>
                                   ))}
                                 </div>
-                                {!remitOnlyMode && codOverLimit && (
+                                {codOverLimit && (
                                   <div style={{ color: "#B3261E", fontSize: 12, marginTop: 6 }}>
                                     取付金額超過上限（NT$ {fmt(codLimit)}），請改用匯款或減少數量
                                   </div>

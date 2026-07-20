@@ -31,6 +31,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         name: plan.name,
         imageUrl: plan.image_url,
         codLimit: plan.cod_limit || 0,
+        allowCodOnRemitLink: !!plan.allow_cod_on_remit_link,
         deadline: plan.deadline,
         closed,
         categoryId: plan.category_id,

@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { google } from "googleapis";
+import { toDirectImageUrl } from "@/lib/imageUrl";
 
 export function norm(v: any): string {
   return String(v ?? "").trim();
@@ -49,17 +50,6 @@ function parseFlexibleDate(raw: any): Date {
   if (!s) return new Date();
   const d = new Date(s.replace(/\//g, "-"));
   return isNaN(d.getTime()) ? new Date() : d;
-}
-
-/** 把 Google Drive「分享連結」（給人點開瀏覽用）轉成可以直接當 <img src> 用的圖片網址 */
-function toDirectImageUrl(url: string): string {
-  const u = norm(url);
-  if (!u) return u;
-  let m = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-  if (!m) m = u.match(/drive\.google\.com\/open\?id=([^&]+)/);
-  if (!m) m = u.match(/[?&]id=([^&]+)/);
-  if (m && m[1]) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
-  return u;
 }
 
 // ---------------- 身份名冊匯入 ----------------

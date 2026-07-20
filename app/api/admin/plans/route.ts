@@ -4,6 +4,7 @@ import { requireAdminSession, requireOwnerSession } from "@/lib/adminAuth";
 import { deleteStorageFiles } from "@/lib/storage";
 import { syncPlansSheet } from "@/lib/sheetsSync";
 import { requireSheetId, deleteSheetTabIfExists } from "@/lib/googleSheets";
+import { upsertPlanDeadlineEvent, deletePlanDeadlineEvent } from "@/lib/googleCalendar";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,6 +34,7 @@ export async function GET(req: Request) {
       deadline: p.deadline,
       imageUrl: p.image_url,
       codLimit: p.cod_limit,
+      allowCodOnRemitLink: !!p.allow_cod_on_remit_link,
       visibleTo: p.visible_to,
       categoryId: p.category_id,
       categoryName: p.categories?.name || null,
@@ -69,6 +71,7 @@ export async function POST(req: Request) {
       deadline: body.deadline || null,
       image_url: body.imageUrl || null,
       cod_limit: Number(body.codLimit) || 0,
+      allow_cod_on_remit_link: body.allowCodOnRemitLink === true,
       visible_to: body.visibleTo || [],
       category_id: body.categoryId || null,
       promo_images: body.promoImages || [],
@@ -80,7 +83,18 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   syncPlansSheet().catch(() => {});
-  return NextResponse.json({ ok: true, plan: data });
+
+  let calendarWarning = "";
+  if (data.deadline) {
+    try {
+      const eventId = await upsertPlanDeadlineEvent({ planId: data.id, planName: data.name, deadline: data.deadline });
+      await supabase.from("plans").update({ calendar_event_id: eventId }).eq("id", data.id);
+    } catch (e: any) {
+      calendarWarning = "企劃已建立，但同步到 Google 行事曆時發生問題：" + (e?.message || "未知錯誤");
+    }
+  }
+
+  return NextResponse.json({ ok: true, plan: data, syncWarning: calendarWarning || undefined });
 }
 
 export async function PUT(req: Request) {
@@ -94,16 +108,19 @@ export async function PUT(req: Request) {
 
   const supabase = getSupabaseAdmin();
 
-  // 先抓舊資料，等下比對哪些圖片被換掉/移除了，順便清掉 Storage 裡的舊檔案
-  const { data: oldPlan } = await supabase.from("plans").select("image_url, promo_images").eq("id", body.id).single();
+  // 先抓舊資料，等下比對哪些圖片被換掉/移除了，順便清掉 Storage 裡的舊檔案；也要拿舊的截止時間/行事曆事件ID來判斷怎麼同步
+  const { data: oldPlan } = await supabase.from("plans").select("image_url, promo_images, deadline, calendar_event_id, name").eq("id", body.id).single();
+
+  const newDeadline = body.deadline || null;
 
   const { error } = await supabase
     .from("plans")
     .update({
       name: body.name,
-      deadline: body.deadline || null,
+      deadline: newDeadline,
       image_url: body.imageUrl || null,
       cod_limit: Number(body.codLimit) || 0,
+      allow_cod_on_remit_link: body.allowCodOnRemitLink === true,
       visible_to: body.visibleTo || [],
       category_id: body.categoryId || null,
       promo_images: body.promoImages || [],
@@ -124,7 +141,29 @@ export async function PUT(req: Request) {
   }
 
   syncPlansSheet().catch(() => {});
-  return NextResponse.json({ ok: true });
+
+  // 同步行事曆：有截止時間就建立/更新事件；截止時間被清空、但之前有事件的話就刪掉
+  let calendarWarning = "";
+  try {
+    if (newDeadline) {
+      const eventId = await upsertPlanDeadlineEvent({
+        planId: body.id,
+        planName: body.name,
+        deadline: newDeadline,
+        existingEventId: oldPlan?.calendar_event_id || null,
+      });
+      if (eventId !== oldPlan?.calendar_event_id) {
+        await supabase.from("plans").update({ calendar_event_id: eventId }).eq("id", body.id);
+      }
+    } else if (oldPlan?.calendar_event_id) {
+      await deletePlanDeadlineEvent(oldPlan.calendar_event_id);
+      await supabase.from("plans").update({ calendar_event_id: null }).eq("id", body.id);
+    }
+  } catch (e: any) {
+    calendarWarning = "企劃已儲存，但同步到 Google 行事曆時發生問題：" + (e?.message || "未知錯誤");
+  }
+
+  return NextResponse.json({ ok: true, syncWarning: calendarWarning || undefined });
 }
 
 export async function DELETE(req: Request) {
@@ -148,7 +187,7 @@ export async function DELETE(req: Request) {
   const supabase = getSupabaseAdmin();
 
   // 刪除前先把這個企劃、以及底下所有商品用到的圖片蒐集起來，等資料庫刪除成功後一併清掉 Storage 檔案
-  const { data: plan } = await supabase.from("plans").select("id, name, image_url, promo_images").eq("id", body.id).single();
+  const { data: plan } = await supabase.from("plans").select("id, name, image_url, promo_images, calendar_event_id").eq("id", body.id).single();
   const { data: products } = await supabase.from("products").select("image_url").eq("plan_id", body.id);
   const urlsToDelete = [
     plan?.image_url,
@@ -177,6 +216,10 @@ export async function DELETE(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   deleteStorageFiles(urlsToDelete).catch(() => {});
+
+  if (plan?.calendar_event_id) {
+    deletePlanDeadlineEvent(plan.calendar_event_id).catch(() => {});
+  }
 
   if (purgeOrders && plan?.name) {
     // 刪掉主試算表裡這個企劃的分頁（訂單明細+商品目錄）；成本試算表刻意不動，保留財務歷史紀錄

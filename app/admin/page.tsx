@@ -1,17 +1,18 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
+import { toDirectImageUrl } from "@/lib/imageUrl";
 
 type Category = { id: string; name: string; parent_id: string | null; created_at?: string; sort_order?: number };
 type PlanAdmin = {
   id: string; name: string; deadline: string | null; imageUrl: string | null;
-  codLimit: number; visibleTo: string[]; categoryId: string | null; categoryName: string | null;
+  codLimit: number; allowCodOnRemitLink?: boolean; visibleTo: string[]; categoryId: string | null; categoryName: string | null;
   promoImages?: string[]; sortOrder?: number;
   hideAfterDays?: number | null; fulfillmentStatus?: string | null;
 };
 type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null };
 
 const emptyCategoryForm = { id: "", name: "", parentId: "" };
-const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", visibleTo: [] as string[], categoryId: "", promoImages: [] as string[], hideAfterDays: "", fulfillmentStatus: "" };
+const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", allowCodOnRemitLink: false, visibleTo: [] as string[], categoryId: "", promoImages: [] as string[], hideAfterDays: "", fulfillmentStatus: "" };
 const emptyProductForm = { id: "", name: "", style: "", price: "0", imageUrl: "" };
 
 export default function AdminPage() {
@@ -394,6 +395,7 @@ export default function AdminPage() {
       deadline: p.deadline ? p.deadline.slice(0, 16) : "",
       imageUrl: p.imageUrl || "",
       codLimit: String(p.codLimit || 0),
+      allowCodOnRemitLink: !!(p as any).allowCodOnRemitLink,
       visibleTo: p.visibleTo || [],
       categoryId: p.categoryId || "",
       promoImages: p.promoImages || [],
@@ -411,6 +413,7 @@ export default function AdminPage() {
       deadline: planForm.deadline ? new Date(planForm.deadline).toISOString() : null,
       imageUrl: planForm.imageUrl || null,
       codLimit: planForm.codLimit,
+      allowCodOnRemitLink: planForm.allowCodOnRemitLink,
       visibleTo: planForm.visibleTo,
       categoryId: planForm.categoryId || null,
       promoImages: planForm.promoImages,
@@ -418,13 +421,14 @@ export default function AdminPage() {
       fulfillmentStatus: planForm.fulfillmentStatus || null,
     };
     try {
+      let d: any;
       if (planForm.id) {
-        await callJson("/api/admin/plans", "PUT", { id: planForm.id, ...payload });
+        d = await callJson("/api/admin/plans", "PUT", { id: planForm.id, ...payload });
       } else {
-        await callJson("/api/admin/plans", "POST", payload);
+        d = await callJson("/api/admin/plans", "POST", payload);
       }
       setPlanForm(emptyPlanForm);
-      setPlanMsg("已儲存");
+      setPlanMsg(d?.syncWarning || "已儲存");
       loadPlans();
     } catch (e: any) {
       setPlanMsg("失敗：" + e.message);
@@ -485,6 +489,31 @@ export default function AdminPage() {
 
   function removePromoImage(index: number) {
     setPlanForm((f) => ({ ...f, promoImages: f.promoImages.filter((_, i) => i !== index) }));
+  }
+
+  const [planImageUrlInput, setPlanImageUrlInput] = useState("");
+  const [promoImageUrlInput, setPromoImageUrlInput] = useState("");
+  const [productImageUrlInput, setProductImageUrlInput] = useState("");
+
+  function applyPlanImageUrl() {
+    const v = planImageUrlInput.trim();
+    if (!v) return;
+    setPlanForm((f) => ({ ...f, imageUrl: toDirectImageUrl(v) }));
+    setPlanImageUrlInput("");
+  }
+
+  function applyPromoImageUrl() {
+    const v = promoImageUrlInput.trim();
+    if (!v) return;
+    setPlanForm((f) => ({ ...f, promoImages: [...f.promoImages, toDirectImageUrl(v)] }));
+    setPromoImageUrlInput("");
+  }
+
+  function applyProductImageUrl() {
+    const v = productImageUrlInput.trim();
+    if (!v) return;
+    setProductForm((f) => ({ ...f, imageUrl: toDirectImageUrl(v) }));
+    setProductImageUrlInput("");
   }
 
   // ================= 商品 =================
@@ -1261,8 +1290,24 @@ export default function AdminPage() {
           <input type="number" value={planForm.codLimit} onChange={(e) => setPlanForm((f) => ({ ...f, codLimit: e.target.value }))} placeholder="0＝不開放取付" />
         </div>
         <div className="id-row">
+          <span className="id-label">限定連結取付</span>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#33415C" }}>
+            <input
+              type="checkbox"
+              checked={planForm.allowCodOnRemitLink}
+              onChange={(e) => setPlanForm((f) => ({ ...f, allowCodOnRemitLink: e.target.checked }))}
+            />
+            透過 ?pay=remit 連結進來的訪客，這個企劃仍然開放取付
+          </label>
+        </div>
+        <div className="id-row">
           <span className="id-label">企劃圖片</span>
           <input type="file" accept="image/*" onChange={handlePlanImageUpload} />
+        </div>
+        <div className="id-row">
+          <span className="id-label"></span>
+          <input type="text" value={planImageUrlInput} onChange={(e) => setPlanImageUrlInput(e.target.value)} placeholder="或貼上圖片網址（支援 Google Drive 分享連結）" />
+          <button className="btn small secondary" onClick={applyPlanImageUrl}>使用這個網址</button>
         </div>
         {uploadingPlanImg && <div style={{ fontSize: 13, color: "#8A8779" }}>圖片上傳中…</div>}
         {planForm.imageUrl && <img src={planForm.imageUrl} alt="預覽" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, marginBottom: 8 }} />}
@@ -1288,6 +1333,10 @@ export default function AdminPage() {
             )}
             <input type="file" accept="image/*" onChange={handlePromoImageUpload} />
             {uploadingPromoImg && <div style={{ fontSize: 13, color: "#8A8779", marginTop: 4 }}>圖片上傳中…</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <input type="text" value={promoImageUrlInput} onChange={(e) => setPromoImageUrlInput(e.target.value)} placeholder="或貼上圖片網址（支援 Google Drive 分享連結）" style={{ flex: 1 }} />
+              <button className="btn small secondary" onClick={applyPromoImageUrl}>新增這張</button>
+            </div>
           </div>
         </div>
 
@@ -1400,6 +1449,11 @@ export default function AdminPage() {
           <div className="id-row">
             <span className="id-label">商品圖片</span>
             <input type="file" accept="image/*" onChange={handleProductImageUpload} />
+          </div>
+          <div className="id-row">
+            <span className="id-label"></span>
+            <input type="text" value={productImageUrlInput} onChange={(e) => setProductImageUrlInput(e.target.value)} placeholder="或貼上圖片網址（支援 Google Drive 分享連結）" />
+            <button className="btn small secondary" onClick={applyProductImageUrl}>使用這個網址</button>
           </div>
           {uploadingProductImg && <div style={{ fontSize: 13, color: "#8A8779" }}>圖片上傳中…</div>}
           {productForm.imageUrl && <img src={productForm.imageUrl} alt="預覽" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, marginBottom: 8 }} />}
