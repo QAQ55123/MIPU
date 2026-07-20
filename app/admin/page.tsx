@@ -99,6 +99,12 @@ export default function AdminPage() {
   const [checkoutNoticeMsg, setCheckoutNoticeMsg] = useState("");
   const [checkoutNoticeSaving, setCheckoutNoticeSaving] = useState(false);
 
+  // 危險區域：清空所有資料
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetConfirmChecked, setResetConfirmChecked] = useState(false);
+  const [resetRunning, setResetRunning] = useState(false);
+  const [resetResult, setResetResult] = useState<any>(null);
+
   // 舊會員確認：資料匯入
   const [identitiesFile, setIdentitiesFile] = useState<File | null>(null);
   const [identitiesImporting, setIdentitiesImporting] = useState(false);
@@ -884,6 +890,28 @@ export default function AdminPage() {
     }
   }
 
+  async function runResetAllData() {
+    if (resetConfirmText !== "清空所有資料" || !resetConfirmChecked) return;
+    if (!confirm("真的要清空所有資料嗎？這個動作無法復原，包含企劃、訂單、會員、分類、公告、行事曆事件、Google Sheet 分頁，以及所有管理者帳號（含你自己）都會被清掉。")) return;
+    if (!confirm("再確認一次：這是最後一次提醒，按下確定之後就會立刻執行，沒有回頭路。")) return;
+    setResetRunning(true);
+    setResetResult(null);
+    try {
+      const r = await fetch("/api/admin/reset-all-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: resetConfirmText }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setResetResult({ error: d.error || "清空失敗" }); return; }
+      setResetResult(d);
+    } catch {
+      setResetResult({ error: "網路連線失敗，請再試一次" });
+    } finally {
+      setResetRunning(false);
+    }
+  }
+
   async function submitIdentitiesFile(commit: boolean) {
     if (!identitiesFile) return;
     setIdentitiesImporting(true);
@@ -1158,6 +1186,52 @@ export default function AdminPage() {
             {syncingSheets ? "同步中…" : "立即完整同步一次"}
           </button>
           <div style={{ fontSize: 13, marginTop: 6 }}>{syncSheetsMsg}</div>
+        </div>
+      )}
+
+      {currentRole === "owner" && (
+        <div className="auth-card" style={{ border: "1px solid #F1B4B4", background: "#FFF7F7" }}>
+          <h3 style={{ color: "#B3261E" }}>危險區域：清空所有資料</h3>
+          <p style={{ fontSize: 12, color: "#8A7373", margin: 0 }}>
+            會把企劃、商品、訂單、會員、分類、公告、舊會員身份名冊、管理者帳號（含你自己）全部刪除，
+            並且盡量一併清除對應的 Google 行事曆事件跟 Google Sheet 分頁（無法保證 100% 清乾淨，個別失敗會列在下面）。
+            <strong>這個動作無法復原</strong>，清空後要用最高管理者邀請碼重新註冊 owner 帳號。
+          </p>
+          <div className="id-row" style={{ marginTop: 10 }}>
+            <span className="id-label">輸入「清空所有資料」</span>
+            <input type="text" value={resetConfirmText} onChange={(e) => setResetConfirmText(e.target.value)} placeholder="清空所有資料" />
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#B3261E", margin: "8px 0" }}>
+            <input type="checkbox" checked={resetConfirmChecked} onChange={(e) => setResetConfirmChecked(e.target.checked)} />
+            我了解這個操作無法復原，確定要繼續
+          </label>
+          <button
+            className="btn danger"
+            onClick={runResetAllData}
+            disabled={resetRunning || resetConfirmText !== "清空所有資料" || !resetConfirmChecked}
+          >
+            {resetRunning ? "清空中，請稍候…" : "清空所有資料"}
+          </button>
+          {resetResult && (
+            <div style={{ fontSize: 13, marginTop: 10, maxHeight: 260, overflowY: "auto", border: "1px solid #F1B4B4", borderRadius: 8, padding: 8 }}>
+              {resetResult.error ? (
+                <div style={{ color: "#B3261E" }}>錯誤：{resetResult.error}</div>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>已清空完成，你現在的登入已經失效，請重新整理頁面用邀請碼重新註冊 owner 帳號。</div>
+                  <div style={{ color: "#8A7373", marginBottom: 6 }}>
+                    刪除筆數：{Object.entries(resetResult.deleted || {}).map(([k, v]) => `${k}(${v})`).join("、")}
+                  </div>
+                  {resetResult.warnings?.length > 0 && (
+                    <>
+                      <div style={{ fontWeight: 600, color: "#B08E5A" }}>以下項目沒有清成功，需要自己去 Google Sheet／行事曆手動處理：</div>
+                      {resetResult.warnings.map((w: string, i: number) => <div key={i} style={{ color: "#B08E5A" }}>・{w}</div>)}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
             </>
