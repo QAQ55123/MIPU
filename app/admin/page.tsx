@@ -199,6 +199,13 @@ export default function AdminPage() {
     }
   }, [unlocked, currentRole]);
 
+  // 切到「企劃管理」分頁時重新抓一次最新清單（避免同一個登入階段裡，用其他功能新增的企劃不會自動出現）
+  useEffect(() => {
+    if (unlocked && activeSection === "plans") {
+      loadPlans();
+    }
+  }, [unlocked, activeSection]);
+
   async function doLogin() {
     setLoginMsg("");
     if (!username.trim() || !password) return setLoginMsg("請輸入帳號密碼");
