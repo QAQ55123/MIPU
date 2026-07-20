@@ -10,13 +10,25 @@ const CATALOG_HEADER = ["商品名稱", "款式", "單價", "圖片"];
 
 /** 失敗自動重試一次（間隔 800ms），常見的網路小抖動、Google API 短暫逾時可以這樣救回來，
  *  真的重試後還是失敗，就照常把錯誤丟出去讓呼叫端處理 */
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (e) {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return await fn();
+  const maxAttempts = 4;
+  let lastErr: any;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastErr = e;
+      const isQuotaError = /quota exceeded|resource_exhausted|rate limit/i.test(String(e?.message || ""));
+      // 配額被 Google 打回來的話要等久一點（每分鐘配額，等短時間重試沒用），一般錯誤維持原本短暫重試即可
+      const delay = isQuotaError ? 15000 * (attempt + 1) : 800;
+      if (attempt < maxAttempts - 1) await sleep(delay);
+    }
   }
+  throw lastErr;
 }
 
 /** 從「付款狀態」欄解析出「實收金額」數字（NT$、逗號、空白都容忍；非數字回 0），比照原系統 parsePaidAmount_ */
@@ -106,8 +118,18 @@ export async function syncOnePlanOrderTab(planId: string, planName: string) {
 /** 同步「所有」企劃的訂單分頁（給手動「立即完整同步一次」用） */
 export async function syncAllPlanOrderTabs() {
   const plans = await getAllPlans();
+  const failedPlans: string[] = [];
   for (const p of plans) {
-    await syncOnePlanOrderTab(p.id, p.name);
+    try {
+      await syncOnePlanOrderTab(p.id, p.name);
+    } catch (e: any) {
+      // 單一企劃同步失敗不該擋住其他企劃，記下來繼續跑下一個
+      failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
+    }
+    await sleep(300); // 節流，避免密集寫入短時間內打爆 Google Sheets API 的每分鐘配額
+  }
+  if (failedPlans.length > 0) {
+    throw new Error(`部分企劃同步失敗（其餘企劃仍已正常同步）：${failedPlans.join("；")}`);
   }
 }
 
@@ -361,13 +383,22 @@ export async function syncCostWorkbook() {
   const plans = await getAllPlans();
 
   const summaryRows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number }[] = [];
+  const failedPlans: string[] = [];
   for (const p of plans) {
-    const tabName = safeTabName(p.name);
-    const agg = await aggregatePlanFromSheet(tabName);
-    if (agg.products.length === 0) continue; // 這個企劃還沒有商品，略過
-    await updateCostTab(costId, tabName, agg);
-    const N = agg.products.length;
-    summaryRows.push({ name: p.name, tab: tabName, incomeRow: N + 12, costRow: N + 13, profitRow: N + 15 });
+    try {
+      const tabName = safeTabName(p.name);
+      const agg = await aggregatePlanFromSheet(tabName);
+      if (agg.products.length === 0) continue; // 這個企劃還沒有商品，略過
+      await updateCostTab(costId, tabName, agg);
+      const N = agg.products.length;
+      summaryRows.push({ name: p.name, tab: tabName, incomeRow: N + 12, costRow: N + 13, profitRow: N + 15 });
+    } catch (e: any) {
+      failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
+    }
+    await sleep(300); // 節流，避免密集寫入短時間內打爆 Google Sheets API 的每分鐘配額
   }
   await buildCostSummary(costId, summaryRows);
+  if (failedPlans.length > 0) {
+    throw new Error(`部分企劃成本表同步失敗（其餘企劃仍已正常同步）：${failedPlans.join("；")}`);
+  }
 }
