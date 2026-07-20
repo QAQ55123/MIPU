@@ -1,19 +1,19 @@
 import { getSupabaseAdmin } from "./supabase";
 import {
   getSheets, requireSheetId, requireCostSheetId,
-  ensureSheetExists, formatHeader, boldRange, hideSheetTab,
-  getValuesAndFormulas, writeRange, clearRange, columnToLetter,
+  ensureSheetExists, getValuesAndFormulas, columnToLetter,
+  buildClearRequest, buildWriteRequest, buildBoldRangeRequest, buildHideSheetRequest,
+  runBatch, type BatchRequest, type SheetsClient,
 } from "./googleSheets";
 
 const ORDER_HEADER = ["訂單編號", "來源", "暱稱", "FB個人網址", "商品名稱", "款式", "數量", "單價", "小計", "訂單時間", "交易方式", "付款狀態"];
 const CATALOG_HEADER = ["商品名稱", "款式", "單價", "圖片"];
 
-/** 失敗自動重試一次（間隔 800ms），常見的網路小抖動、Google API 短暫逾時可以這樣救回來，
- *  真的重試後還是失敗，就照常把錯誤丟出去讓呼叫端處理 */
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** 失敗自動重試，配額被打回來的話要等滿一分鐘再試（Google 的配額是每分鐘重置，等短短幾秒重試沒有意義） */
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   const maxAttempts = 2;
   let lastErr: any;
@@ -23,8 +23,6 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
     } catch (e: any) {
       lastErr = e;
       const isQuotaError = /quota exceeded|resource_exhausted|rate limit/i.test(String(e?.message || ""));
-      // Google 的配額是「每分鐘」重置，等短短幾秒重試沒有意義，直接等滿 65 秒確保跨過重置時間點；
-      // 一般非配額錯誤維持原本的短暫重試即可
       const delay = isQuotaError ? 65000 : 800;
       if (attempt < maxAttempts - 1) await sleep(delay);
     }
@@ -66,29 +64,30 @@ function safeTabName(name: string): string {
 
 // ==================================================================================
 // 一、「訂單」同步：主試算表裡，每個企劃各一個分頁（商品目錄 + 訂單明細），比照原系統版面
+//
+// 設計重點：每個企劃「清空＋寫入＋排版」原本要拆成 4 次個別的 API 呼叫，改成先組成一份
+// 請求清單（不會馬上打 API），呼叫端可以自己決定「這份清單要不要跟別的企劃合併、一次送出」。
+// 「立即完整同步一次」會把所有企劃的清單合併成一份，整個流程只需要 1 次 API 呼叫，
+// 不會再因為企劃一多就打爆 Google 的每分鐘寫入配額。
 // ==================================================================================
 
-/** 同步單一企劃的訂單分頁（商品目錄跟訂單明細每次都用資料庫最新資料重寫；
- *  「付款狀態」欄現在是從後台「訂單管理」填寫的已收金額為準，直接寫入，不再從表格讀舊值） */
-export async function syncOnePlanOrderTab(planId: string, planName: string) {
-  const id = requireSheetId();
+/** 組出「某個企劃的訂單分頁」需要寫入的請求清單（純組資料，不呼叫 API） */
+async function buildOrderTabRequests(mainSheetId: string, planId: string, planName: string): Promise<BatchRequest[]> {
   const tabName = safeTabName(planName);
-  const { sheets, sheetId } = await ensureSheetExists(id, tabName);
+  const { sheetId } = await ensureSheetExists(mainSheetId, tabName);
 
   const [products, orders] = await Promise.all([getPlanProducts(planId), getPlanOrders(planId)]);
 
-  // 組「商品目錄」區塊
   const catalogRows = products.map((p: any) => [p.name, p.style || "", Number(p.price) || 0, p.image_url || ""]);
   const catalogBlock = [CATALOG_HEADER, ...catalogRows];
 
-  // 組「訂單明細」區塊（付款狀態＝後台填寫的已收金額，同一張訂單的每個品項都顯示一樣的已收金額）
   const orderRows: (string | number)[][] = [];
   orders.forEach((o: any) => {
     const paidAmount = Number(o.paid_amount) || 0;
     (o.order_items || []).forEach((it: any) => {
       orderRows.push([
         o.order_no,
-        "", // 來源：現在系統統一帳號制，沒有這個概念，留空
+        "",
         o.username,
         o.profile_url,
         it.product_name,
@@ -105,29 +104,47 @@ export async function syncOnePlanOrderTab(planId: string, planName: string) {
 
   const fullData: (string | number)[][] = [
     ...catalogBlock,
-    ["", "", "", "", "", "", "", "", "", "", "", ""], // 分隔空列
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
     ORDER_HEADER,
     ...orderRows,
   ];
 
-  await clearRange(sheets, id, `${tabName}!A1:L100000`);
-  await writeRange(sheets, id, `${tabName}!A1`, fullData);
-  await boldRange(sheets, id, sheetId, 0, 1, 0, CATALOG_HEADER.length);
-  await boldRange(sheets, id, sheetId, catalogBlock.length + 1, catalogBlock.length + 2, 0, ORDER_HEADER.length);
+  return [
+    buildClearRequest(sheetId, 100000, 12),
+    buildWriteRequest(sheetId, 0, 0, fullData),
+    buildBoldRangeRequest(sheetId, 0, 1, 0, CATALOG_HEADER.length),
+    buildBoldRangeRequest(sheetId, catalogBlock.length + 1, catalogBlock.length + 2, 0, ORDER_HEADER.length),
+  ];
 }
 
-/** 同步「所有」企劃的訂單分頁（給手動「立即完整同步一次」用） */
+/** 同步單一企劃的訂單分頁（即時同步用：客人下單當下、後台改單當下呼叫） */
+export async function syncOnePlanOrderTab(planId: string, planName: string) {
+  const id = requireSheetId();
+  const sheets = await getSheets();
+  const requests = await buildOrderTabRequests(id, planId, planName);
+  await runBatch(sheets, id, requests);
+}
+
+/** 同步「所有」企劃的訂單分頁（給手動「立即完整同步一次」用）。
+ *  所有企劃的請求會合併成一份，整個流程只打「一次」批次寫入 API。 */
 export async function syncAllPlanOrderTabs() {
+  const id = requireSheetId();
+  const sheets = await getSheets();
   const plans = await getAllPlans();
   const failedPlans: string[] = [];
+  const allRequests: BatchRequest[] = [];
+
   for (const p of plans) {
     try {
-      await withRetry(() => syncOnePlanOrderTab(p.id, p.name));
+      const requests = await buildOrderTabRequests(id, p.id, p.name);
+      allRequests.push(...requests);
     } catch (e: any) {
-      // 單一企劃同步失敗不該擋住其他企劃，記下來繼續跑下一個
       failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
     }
-    await sleep(800); // 節流，避免密集寫入短時間內打爆 Google Sheets API 的每分鐘配額
+  }
+
+  if (allRequests.length > 0) {
+    await withRetry(() => runBatch(sheets, id, allRequests));
   }
   if (failedPlans.length > 0) {
     throw new Error(`部分企劃同步失敗（其餘企劃仍已正常同步）：${failedPlans.join("；")}`);
@@ -146,15 +163,12 @@ export async function syncOrderRealtimeToPlanTab(planId: string, planName: strin
 
 type Aggregated = {
   products: { name: string; style: string; price: number }[];
-  qty: Record<string, number>; // "商品|款式" -> 數量
+  qty: Record<string, number>;
   customers: { display: string; items: Record<string, number>; paid: number }[];
 };
 
-/** 從「主試算表」剛同步好的企劃分頁讀取資料，統計商品目錄＋依人分組的訂購數量與已收金額（比照原系統 aggregatePlan_，
- *  這樣「已收金額」才能吃到你直接在 Sheet 上手動填的付款狀態） */
-async function aggregatePlanFromSheet(tabName: string): Promise<Aggregated> {
-  const id = requireSheetId();
-  const sheets = await getSheets();
+/** 從「主試算表」剛同步好的企劃分頁讀取資料，統計商品目錄＋依人分組的訂購數量與已收金額 */
+async function aggregatePlanFromSheet(sheets: SheetsClient, id: string, tabName: string): Promise<Aggregated> {
   const { values } = await getValuesAndFormulas(sheets, id, `${tabName}!A1:L100000`);
 
   const products: Aggregated["products"] = [];
@@ -188,8 +202,8 @@ async function aggregatePlanFromSheet(tabName: string): Promise<Aggregated> {
 
       const orderNo = String(r[0] || "").trim();
       if (orderNo && !paidSeenOrderNo.has(orderNo)) {
-        const paidVal = parsePaidAmount(r[11]);
-        if (paidVal > 0) { c.paid += paidVal; paidSeenOrderNo.add(orderNo); }
+        paidSeenOrderNo.add(orderNo);
+        c.paid += parsePaidAmount(r[11]);
       }
     }
   }
@@ -197,22 +211,14 @@ async function aggregatePlanFromSheet(tabName: string): Promise<Aggregated> {
   return { products, qty, customers: Array.from(customersMap.values()) };
 }
 
-/** 產生/刷新單一企劃的成本分頁（保留你手填的進貨單價/單件重量/包裹總重/每公斤價格/內陸運費/其他） */
-async function updateCostTab(costId: string, planTab: string, agg: Aggregated) {
+const LABELS = ["商品", "款式", "售價", "進貨單價", "單件重量(g)", "數量", "小計", "", "【運費計算】", "包裹總重(g)", "每公斤價格", "內陸運費", "商品總重(g)", "包材重量(g)", "每g分攤比例", "【總覽】", "總收入", "總進貨成本", "其他", "淨利潤", "【客戶應收運費】", "客戶"];
+
+/** 組出「某個企劃的成本分頁＋隱藏明細分頁」需要寫入的請求清單（純組資料，不呼叫 API） */
+async function buildCostTabRequests(sheets: SheetsClient, costId: string, planTab: string, agg: Aggregated): Promise<BatchRequest[]> {
+  const { sheetId } = await ensureSheetExists(costId, planTab);
   const products = agg.products;
   const N = products.length;
-  if (N === 0) return; // 沒有商品，不是有效的企劃分頁
 
-  const sheets = await getSheets();
-  const { sheetId } = await ensureSheetExists(costId, planTab);
-
-  const LABELS = [
-    "商品", "【運費計算】", "包裹總重(g)", "每公斤價格", "內陸運費", "商品總重(g)",
-    "包材重量(g)", "每g分攤比例", "【總覽】", "總收入", "總進貨成本", "其他", "淨利潤",
-    "【客戶應收運費】", "客戶", "",
-  ];
-
-  // 先讀出目前內容，把手填欄位（含公式）保留下來
   const manual = new Map<string, { buy: any; weightWrite: any }>();
   let pkgTotal: any = "", kgPrice: any = "", landFee: any = "", otherVal: any = "";
   const { values: oldValues, formulas: oldFormulas } = await getValuesAndFormulas(sheets, costId, `${planTab}!A1:G100000`);
@@ -229,7 +235,7 @@ async function updateCostTab(costId: string, planTab: string, agg: Aggregated) {
   });
 
   const data: (string | number)[][] = [];
-  data.push(["商品", "款式", "售價", "進貨單價", "單件重量(g)", "數量", "小計"]); // row 1
+  data.push(["商品", "款式", "售價", "進貨單價", "單件重量(g)", "數量", "小計"]);
   products.forEach((p, i) => {
     const row = 2 + i;
     const m = manual.get(`${p.name}|${p.style}`) || ({} as any);
@@ -243,7 +249,7 @@ async function updateCostTab(costId: string, planTab: string, agg: Aggregated) {
     ]);
   });
   const lastP = N + 1;
-  data.push(["", "", "", "", "", "", ""]); // 空列
+  data.push(["", "", "", "", "", "", ""]);
 
   const pkgRow = N + 4, prodWRow = N + 7, pkgMatRow = N + 8;
   data.push(["【運費計算】", "", "", "", "", "", ""]);
@@ -263,22 +269,17 @@ async function updateCostTab(costId: string, planTab: string, agg: Aggregated) {
   data.push(["其他", "", otherVal, "", "", "", ""]);
   data.push(["淨利潤", "", `=IF(C${incomeRow}="","",C${incomeRow}-C${costRow}+IF(C${otherRow}="",0,C${otherRow}))`, "", "", "", ""]);
 
-  // 隱藏明細分頁：放每位客戶的各商品數量，讓「客戶商品重量/小計」用公式即時算，
-  // 手改包裹總重/每公斤價格/內陸運費會馬上反映在客戶應收運費，不用等重新同步
   const customers = (agg.customers || []).slice().sort((a, b) => (a.display < b.display ? -1 : 1));
   const nCust = customers.length;
   const detailName = `_${planTab}_明細`;
   const detailRef = `'${detailName.replace(/'/g, "''")}'!`;
   const { sheetId: detailSheetId } = await ensureSheetExists(costId, detailName);
-  await clearRange(sheets, costId, `${detailName}!A1:ZZ100000`);
   const ddata: (string | number)[][] = [["商品", "款式", ...customers.map((c) => c.display)]];
   products.forEach((p) => {
     const rowArr: (string | number)[] = [p.name, p.style];
     customers.forEach((c) => rowArr.push(Number(c.items[`${p.name}|${p.style}`]) || 0));
     ddata.push(rowArr);
   });
-  await writeRange(sheets, costId, `${detailName}!A1`, ddata);
-  await hideSheetTab(sheets, costId, detailSheetId, true);
 
   data.push(["", "", "", "", "", "", ""]);
   data.push(["【客戶應收運費】", "", "", "", "", "", ""]);
@@ -286,7 +287,7 @@ async function updateCostTab(costId: string, planTab: string, agg: Aggregated) {
   const custStartRow = N + 19;
   customers.forEach((c, i) => {
     const row = custStartRow + i;
-    const col = columnToLetter(3 + i); // 明細分頁裡，這位客戶的欄（A商品 B款式 C起是客戶）
+    const col = columnToLetter(3 + i);
     const wSum = `SUMPRODUCT($E$2:$E$${lastP},${detailRef}${col}2:${col}${lastP})`;
     const ratioMul = `(1+IF($C$${ratioRow}="",0,$C$${ratioRow}))`;
     const landShare = `IF($C$${landRow}="",0,$C$${landRow}/${nCust})`;
@@ -303,17 +304,19 @@ async function updateCostTab(costId: string, planTab: string, agg: Aggregated) {
     ]);
   });
 
-  await clearRange(sheets, costId, `${planTab}!A1:G100000`);
-  await writeRange(sheets, costId, `${planTab}!A1`, data);
-  await boldRange(sheets, costId, sheetId, 0, 1, 0, 7);
-  await boldRange(sheets, costId, sheetId, N + 17, N + 19, 0, 7); // 客戶應收運費 標題兩列
+  return [
+    buildClearRequest(sheetId, 100000, 7),
+    buildWriteRequest(sheetId, 0, 0, data),
+    buildBoldRangeRequest(sheetId, 0, 1, 0, 7),
+    buildBoldRangeRequest(sheetId, N + 17, N + 19, 0, 7),
+    buildClearRequest(detailSheetId, 100000, 26),
+    buildWriteRequest(detailSheetId, 0, 0, ddata),
+    buildHideSheetRequest(detailSheetId, true),
+  ];
 }
 
-/** 在成本試算表建立/刷新「總覽」分頁：每個企劃一列（銷售/成本/利潤），用公式參照各企劃分頁，最後一列是合計 */
-async function buildCostSummary(costId: string, rows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number }[]) {
-  const sheets = await getSheets();
-  const { sheetId } = await ensureSheetExists(costId, "總覽", 0);
-
+/** 組出「總覽」分頁完整重建的請求清單 */
+function buildCostSummaryRequests(sheetId: number, rows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number }[]): BatchRequest[] {
   const data: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤"]];
   rows.forEach((r) => {
     const ref = `'${r.tab.replace(/'/g, "''")}'!C`;
@@ -325,80 +328,89 @@ async function buildCostSummary(costId: string, rows: { name: string; tab: strin
     data.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`]);
   }
 
-  await clearRange(sheets, costId, `總覽!A1:D100000`);
-  await writeRange(sheets, costId, `總覽!A1`, data);
-  await boldRange(sheets, costId, sheetId, 0, 1, 0, 4);
-  if (n > 0) await boldRange(sheets, costId, sheetId, n + 1, n + 2, 0, 4);
+  const requests: BatchRequest[] = [
+    buildClearRequest(sheetId, 100000, 4),
+    buildWriteRequest(sheetId, 0, 0, data),
+    buildBoldRangeRequest(sheetId, 0, 1, 0, 4),
+  ];
+  if (n > 0) requests.push(buildBoldRangeRequest(sheetId, n + 1, n + 2, 0, 4));
+  return requests;
 }
 
-/** 即時同步用：只新增/更新「這一個」企劃在總覽裡的那一列，不用重新整份重建，
- *  這樣新企劃第一次同步、或商品數量變動導致列號改變，都會馬上反映在總覽裡，不用等手動完整同步 */
-async function upsertPlanInSummary(costId: string, planName: string, tabName: string, N: number) {
-  const sheets = await getSheets();
-  const { sheetId } = await ensureSheetExists(costId, "總覽", 0);
-  const { values } = await getValuesAndFormulas(sheets, costId, `總覽!A1:D100000`);
-
-  const incomeRow = N + 12, costRow = N + 13, profitRow = N + 15;
-  const ref = `'${tabName.replace(/'/g, "''")}'!C`;
-  const newRow: (string | number)[] = [planName, `=${ref}${incomeRow}`, `=${ref}${costRow}`, `=${ref}${profitRow}`];
-
-  let dataRows = values.slice(1); // 跳過標題列
-  const hasTotal = dataRows.length > 0 && String(dataRows[dataRows.length - 1]?.[0] || "").trim() === "合計";
-  if (hasTotal) dataRows = dataRows.slice(0, -1);
-
-  const idx = dataRows.findIndex((r) => String(r[0] || "").trim() === planName);
-  if (idx >= 0) dataRows[idx] = newRow;
-  else dataRows.push(newRow);
-
-  const n = dataRows.length;
-  const finalRows: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤"], ...dataRows];
-  if (n > 0) {
-    const first = 2, last = 1 + n;
-    finalRows.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`]);
-  }
-
-  await clearRange(sheets, costId, `總覽!A1:D100000`);
-  await writeRange(sheets, costId, `總覽!A1`, finalRows);
-  await boldRange(sheets, costId, sheetId, 0, 1, 0, 4);
-  if (n > 0) await boldRange(sheets, costId, sheetId, n + 1, n + 2, 0, 4);
-}
-
-/** 刷新所有企劃的成本表（給手動「立即完整同步一次」用；也可以之後排程呼叫）
- *  注意：要先確保「訂單」分頁已經同步過，這裡會直接讀取主試算表裡每個企劃分頁的內容來統計 */
-/** 刷新「單一」企劃的成本分頁（下單當下即時呼叫用，只更新這一個企劃，速度快；
- *  同時也會把這個企劃在「總覽」裡的那一列一併新增/更新好，新企劃第一次同步也會馬上出現，不用等手動完整同步） */
+/** 刷新「單一」企劃的成本分頁（下單當下即時呼叫用，只更新這一個企劃；
+ *  同時也會把這個企劃在「總覽」裡的那一列一併新增/更新好） */
 export async function syncOnePlanCostTab(planId: string, planName: string) {
   const costId = requireCostSheetId();
   const tabName = safeTabName(planName);
   await withRetry(async () => {
-    const agg = await aggregatePlanFromSheet(tabName);
-    if (agg.products.length === 0) return; // 這個企劃還沒有商品，略過
-    await updateCostTab(costId, tabName, agg);
-    await upsertPlanInSummary(costId, planName, tabName, agg.products.length);
+    const sheets = await getSheets();
+    const agg = await aggregatePlanFromSheet(sheets, requireSheetId(), tabName);
+    if (agg.products.length === 0) return;
+
+    const costRequests = await buildCostTabRequests(sheets, costId, tabName, agg);
+
+    const { sheetId: summarySheetId } = await ensureSheetExists(costId, "總覽", 0);
+    const { values } = await getValuesAndFormulas(sheets, costId, `總覽!A1:D100000`);
+    const N = agg.products.length;
+    const incomeRow = N + 12, costRow = N + 13, profitRow = N + 15;
+    const ref = `'${tabName.replace(/'/g, "''")}'!C`;
+    const newRow: (string | number)[] = [planName, `=${ref}${incomeRow}`, `=${ref}${costRow}`, `=${ref}${profitRow}`];
+    let dataRows = values.slice(1);
+    const hasTotal = dataRows.length > 0 && String(dataRows[dataRows.length - 1]?.[0] || "").trim() === "合計";
+    if (hasTotal) dataRows = dataRows.slice(0, -1);
+    const idx = dataRows.findIndex((r) => String(r[0] || "").trim() === planName);
+    if (idx >= 0) dataRows[idx] = newRow;
+    else dataRows.push(newRow);
+
+    const finalData: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤"], ...dataRows];
+    const n = dataRows.length;
+    if (n > 0) {
+      const first = 2, last = 1 + n;
+      finalData.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`]);
+    }
+    const summaryRequests: BatchRequest[] = [
+      buildClearRequest(summarySheetId, 100000, 4),
+      buildWriteRequest(summarySheetId, 0, 0, finalData),
+      buildBoldRangeRequest(summarySheetId, 0, 1, 0, 4),
+    ];
+    if (n > 0) summaryRequests.push(buildBoldRangeRequest(summarySheetId, n + 1, n + 2, 0, 4));
+
+    await runBatch(sheets, costId, [...costRequests, ...summaryRequests]);
   });
 }
 
-/** 刷新「所有」企劃的成本表（給手動「立即完整同步一次」用；也會重建「總覽」分頁） */
+/** 刷新「所有」企劃的成本表（給手動「立即完整同步一次」用；也會重建「總覽」分頁）。
+ *  所有企劃的請求會合併成一份，整個流程只打「一次」批次寫入 API。 */
 export async function syncCostWorkbook() {
   const costId = requireCostSheetId();
+  const mainId = requireSheetId();
+  const sheets = await getSheets();
   const plans = await getAllPlans();
 
   const summaryRows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number }[] = [];
   const failedPlans: string[] = [];
+  const allRequests: BatchRequest[] = [];
+
   for (const p of plans) {
     try {
       const tabName = safeTabName(p.name);
-      const agg = await withRetry(() => aggregatePlanFromSheet(tabName));
-      if (agg.products.length === 0) continue; // 這個企劃還沒有商品，略過
-      await withRetry(() => updateCostTab(costId, tabName, agg));
+      const agg = await aggregatePlanFromSheet(sheets, mainId, tabName);
+      if (agg.products.length === 0) continue;
+      const requests = await buildCostTabRequests(sheets, costId, tabName, agg);
+      allRequests.push(...requests);
       const N = agg.products.length;
       summaryRows.push({ name: p.name, tab: tabName, incomeRow: N + 12, costRow: N + 13, profitRow: N + 15 });
     } catch (e: any) {
       failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
     }
-    await sleep(1500); // 節流：成本表每個企劃內部要寫好幾次（企劃分頁+隱藏明細分頁+格式），間隔要拉大一點避免打爆配額
   }
-  await buildCostSummary(costId, summaryRows);
+
+  const { sheetId: summarySheetId } = await ensureSheetExists(costId, "總覽", 0);
+  allRequests.push(...buildCostSummaryRequests(summarySheetId, summaryRows));
+
+  if (allRequests.length > 0) {
+    await withRetry(() => runBatch(sheets, costId, allRequests));
+  }
   if (failedPlans.length > 0) {
     throw new Error(`部分企劃成本表同步失敗（其餘企劃仍已正常同步）：${failedPlans.join("；")}`);
   }

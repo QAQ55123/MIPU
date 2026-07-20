@@ -25,6 +25,7 @@ function getAuth() {
 }
 
 export type SheetsClient = ReturnType<typeof google.sheets>;
+export type BatchRequest = any; // Google Sheets API batchUpdate 的單一 request 物件
 
 export async function getSheets(): Promise<SheetsClient> {
   const auth = getAuth();
@@ -51,8 +52,9 @@ export function columnToLetter(n: number): string {
   return s;
 }
 
-/** 確保指定試算表裡有這個名稱的分頁，不存在就自動建立；回傳這個分頁的數字 ID（格式設定要用）
- *  insertAtIndex：想固定放在第一個分頁（例如「總覽」）時傳 0 */
+/** 確保指定試算表裡有這個名稱的分頁，不存在就自動建立；回傳這個分頁的數字 ID（格式設定要用）。
+ *  這個操作沒辦法跟其他請求合併（要先知道分頁存不存在、sheetId 是多少，才能組後續的請求），
+ *  但只有第一次建立分頁時才會真的呼叫 API 寫入，之後每次同步都只是單純的 spreadsheets.get 查詢（不算在寫入配額裡）。 */
 export async function ensureSheetExists(
   spreadsheetId: string,
   sheetName: string,
@@ -74,66 +76,87 @@ export async function ensureSheetExists(
   return { sheets, sheetId: target.properties?.sheetId ?? 0 };
 }
 
-/** 標題列排版：粗體＋淺色底、凍結第一列、欄寬自動依內容調整 */
-export async function formatHeader(sheets: SheetsClient, spreadsheetId: string, sheetId: number, columnCount: number) {
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          repeatCell: {
-            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: columnCount },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 0.2, green: 0.25, blue: 0.36 },
-                textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                horizontalAlignment: "CENTER",
-              },
-            },
-            fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
-          },
-        },
-        {
-          updateSheetProperties: {
-            properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
-            fields: "gridProperties.frozenRowCount",
-          },
-        },
-        {
-          autoResizeDimensions: {
-            dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: columnCount },
-          },
-        },
-      ],
-    },
-  });
+/** 把一個儲存格的值轉成 Sheets API 的 CellData 格式；「=」開頭的字串視為公式 */
+function toCellData(cell: string | number): any {
+  if (cell === "" || cell == null) return {};
+  if (typeof cell === "number") return { userEnteredValue: { numberValue: cell } };
+  const s = String(cell);
+  if (s.startsWith("=")) return { userEnteredValue: { formulaValue: s } };
+  return { userEnteredValue: { stringValue: s } };
 }
 
-/** 把某個粗體樣式套到某個範圍（例如小標題列、合計列） */
-export async function boldRange(sheets: SheetsClient, spreadsheetId: string, sheetId: number, startRow: number, endRow: number, startCol: number, endCol: number) {
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          repeatCell: {
-            range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: startCol, endColumnIndex: endCol },
-            cell: { userEnteredFormat: { textFormat: { bold: true } } },
-            fields: "userEnteredFormat.textFormat",
-          },
-        },
-      ],
+/** 建構「清空整個範圍」的請求（不會真的呼叫 API，只是組出請求物件，要跟其他請求一起送出） */
+export function buildClearRequest(sheetId: number, endRowIndex = 100000, endColIndex = 26): BatchRequest {
+  return {
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex, startColumnIndex: 0, endColumnIndex: endColIndex },
+      cell: {},
+      fields: "userEnteredValue",
     },
-  });
+  };
 }
 
-export async function hideSheetTab(sheets: SheetsClient, spreadsheetId: string, sheetId: number, hidden: boolean) {
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [{ updateSheetProperties: { properties: { sheetId, hidden }, fields: "hidden" } }],
+/** 建構「從某個位置開始寫入一整塊資料」的請求 */
+export function buildWriteRequest(sheetId: number, startRow: number, startCol: number, values: (string | number)[][]): BatchRequest {
+  return {
+    updateCells: {
+      start: { sheetId, rowIndex: startRow, columnIndex: startCol },
+      rows: values.map((row) => ({ values: row.map(toCellData) })),
+      fields: "userEnteredValue",
     },
-  });
+  };
+}
+
+/** 建構「標題列排版」的請求們：粗體＋淺色底、凍結第一列、欄寬自動依內容調整 */
+export function buildFormatHeaderRequests(sheetId: number, columnCount: number): BatchRequest[] {
+  return [
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: columnCount },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.2, green: 0.25, blue: 0.36 },
+            textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+            horizontalAlignment: "CENTER",
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+      },
+    },
+    {
+      updateSheetProperties: {
+        properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
+        fields: "gridProperties.frozenRowCount",
+      },
+    },
+    {
+      autoResizeDimensions: {
+        dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: columnCount },
+      },
+    },
+  ];
+}
+
+/** 建構「某個範圍套粗體」的請求（例如小標題列、合計列） */
+export function buildBoldRangeRequest(sheetId: number, startRow: number, endRow: number, startCol: number, endCol: number): BatchRequest {
+  return {
+    repeatCell: {
+      range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: startCol, endColumnIndex: endCol },
+      cell: { userEnteredFormat: { textFormat: { bold: true } } },
+      fields: "userEnteredFormat.textFormat",
+    },
+  };
+}
+
+/** 建構「顯示/隱藏分頁」的請求 */
+export function buildHideSheetRequest(sheetId: number, hidden: boolean): BatchRequest {
+  return { updateSheetProperties: { properties: { sheetId, hidden }, fields: "hidden" } };
+}
+
+/** 把一批請求一次送出（這是真正打 API 的地方，不管裡面包了幾個操作，Google 都只算「一次」寫入用量） */
+export async function runBatch(sheets: SheetsClient, spreadsheetId: string, requests: BatchRequest[]) {
+  if (requests.length === 0) return;
+  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
 }
 
 /** 刪除指定名稱的分頁（如果存在的話；不存在就什麼都不做，安全可以重複呼叫） */
@@ -157,29 +180,17 @@ export async function getValuesAndFormulas(sheets: SheetsClient, spreadsheetId: 
   return { values: valuesRes.data.values || [], formulas: formulasRes.data.values || [] };
 }
 
-export async function writeRange(sheets: SheetsClient, spreadsheetId: string, range: string, values: any[][]) {
-  if (values.length === 0) return;
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values },
-  });
-}
-
-export async function clearRange(sheets: SheetsClient, spreadsheetId: string, range: string) {
-  await sheets.spreadsheets.values.clear({ spreadsheetId, range });
-}
-
-/** 在指定分頁最後面加一列（適合訂單這種「一直新增、不會修改」的資料） */
+/** 在指定分頁最後面加一列（適合訂單這種「一直新增、不會修改」的資料）。
+ *  這支目前沒有地方在用（訂單同步改成整份重寫），保留是為了以後如果需要「只加一列」的輕量寫法。 */
 export async function appendRow(sheetName: string, headerRow: string[], row: (string | number)[]) {
   const id = requireSheetId();
   const { sheets, sheetId } = await ensureSheetExists(id, sheetName);
 
   const existing = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: `${sheetName}!A1:Z1` });
+  const requests: BatchRequest[] = [];
   if (!existing.data.values || existing.data.values.length === 0) {
-    await writeRange(sheets, id, `${sheetName}!A1`, [headerRow]);
-    await formatHeader(sheets, id, sheetId, headerRow.length);
+    requests.push(buildWriteRequest(sheetId, 0, 0, [headerRow]), ...buildFormatHeaderRequests(sheetId, headerRow.length));
+    await runBatch(sheets, id, requests);
   }
 
   await sheets.spreadsheets.values.append({
@@ -191,12 +202,16 @@ export async function appendRow(sheetName: string, headerRow: string[], row: (st
   });
 }
 
-/** 清空指定分頁、整份重新寫入（適合會員/企劃/商品這種「會被編輯、需要跟資料庫保持一致」的資料） */
+/** 清空指定分頁、整份重新寫入（適合會員/企劃/商品這種「會被編輯、需要跟資料庫保持一致」的資料）。
+ *  清空＋寫入＋格式設定，全部組成一份請求清單，一次送出。 */
 export async function overwriteSheet(sheetName: string, headerRow: string[], rows: (string | number)[][]) {
   const id = requireSheetId();
   const { sheets, sheetId } = await ensureSheetExists(id, sheetName);
 
-  await clearRange(sheets, id, `${sheetName}!A1:Z100000`);
-  await writeRange(sheets, id, `${sheetName}!A1`, [headerRow, ...rows]);
-  await formatHeader(sheets, id, sheetId, headerRow.length);
+  const requests: BatchRequest[] = [
+    buildClearRequest(sheetId),
+    buildWriteRequest(sheetId, 0, 0, [headerRow, ...rows]),
+    ...buildFormatHeaderRequests(sheetId, headerRow.length),
+  ];
+  await runBatch(sheets, id, requests);
 }
