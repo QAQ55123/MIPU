@@ -65,9 +65,9 @@ html, body {
 .auth-back-link { display: inline-block; cursor: pointer; color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .auth-back-link:hover { color: var(--primary); }
 .checkout-back-link {
-  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-  font-size: 13px; font-weight: 500; color: var(--primary);
-  border: 1px solid #D9D4C4; padding: 6px 13px; border-radius: 8px; margin-bottom: 14px;
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  font-size: 14px; font-weight: 600; color: var(--primary);
+  border: 1px solid #D9D4C4; padding: 11px 18px; border-radius: 9px; margin-bottom: 16px;
 }
 .checkout-back-link:hover { background: #F7F4EC; }
 
@@ -343,6 +343,7 @@ html, body {
   padding: 10px 12px; margin-bottom: 14px; font-size: 13px; color: #1F3A5C; line-height: 1.5;
 }
 .checkout-notice-icon { flex-shrink: 0; font-weight: 700; }
+.checkout-notice-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
 
 .mibu-announcement-panel {
   display: block; position: absolute; top: 100%; right: -8px; margin-top: 10px;

@@ -1985,11 +1985,11 @@ export default function Home() {
                 {checkoutNotice && (
                   <div className="checkout-notice-box">
                     <span className="checkout-notice-icon" aria-hidden="true">ℹ</span>
-                    <span>{checkoutNotice}</span>
+                    <span className="checkout-notice-text">{checkoutNotice}</span>
                   </div>
                 )}
-                <a className="checkout-back-link" onClick={openCart}><span aria-hidden="true">←</span>返回購物車</a>
                 <h2 className="section-title">結帳</h2>
+                <a className="checkout-back-link" onClick={openCart}><span aria-hidden="true">←</span>返回購物車</a>
 
                 {(() => {
                   const selectedEntries = globalCart.filter((e) => selectedCartKeys.has(cartItemKey(e.planId, e.productName, e.style)) && isGroupActive(e.planId));
