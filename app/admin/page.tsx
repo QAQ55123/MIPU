@@ -2048,7 +2048,8 @@ export default function AdminPage() {
           {!collapsedCards.duplicateOrders && (
           <>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
-            同一個企劃裡，商品內容跟交易方式一模一樣的訂單，很可能是舊資料被重複匯入造成的。
+            只掃描「舊資料匯入」建立的訂單（前台客人正常下單不會列入，因為本來就可能真的買兩次一樣的東西）。
+            同一個人、同企劃底下，商品內容跟交易方式一模一樣，很可能是舊資料被重複匯入造成的。
             這裡列出來讓你確認，預設會勾選「保留最早那筆、其餘刪除」，可以自己調整勾選後再刪除。
           </p>
           <button className="btn small" onClick={loadDuplicateGroups} disabled={duplicateScanning} style={{ marginTop: 8 }}>

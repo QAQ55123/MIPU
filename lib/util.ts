@@ -15,8 +15,15 @@ export function normFb(url: string): string {
   let u = url.trim().toLowerCase();
   u = u.replace(/^https?:\/\//, "");
   u = u.replace(/^www\./, "");
+  u = u.replace(/^m\./, "");
+  // facebook.com/profile.php?id=xxx 這種網址，id 是唯一能區分不同人的地方，要保留下來，
+  // 其他網址（例如 facebook.com/jia.ming?locale=zh_TW）的問號參數則是雜訊，可以丟掉
+  const idMatch = u.match(/[?&]id=(\d+)/);
   u = u.split("?")[0].split("#")[0];
   u = u.replace(/\/+$/, "");
+  if (idMatch && /\/profile\.php$/.test(u)) {
+    u += "?id=" + idMatch[1];
+  }
   return u;
 }
 

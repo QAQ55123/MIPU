@@ -6,10 +6,9 @@ import { syncOrderRealtimeToPlanTab, syncOnePlanCostTab } from "@/lib/planSheetS
 export const dynamic = "force-dynamic";
 
 /**
- * 掃描疑似重複的訂單：同一個企劃底下，商品內容（名稱/款式/數量/單價）跟交易方式都一模一樣的訂單，
- * 很可能是「舊資料匯入」同一份資料被匯入了兩次以上造成的。用商品內容當比對依據，
- * 是因為重複的兩筆訂單常常一筆已經被認領（帳號正確）、一筆還沒配對到身份（帳號是原始暱稱），
- * 不能直接用帳號來判斷是不是同一筆。
+ * 掃描疑似重複的訂單：只針對「舊資料匯入」建立的訂單（有 legacy_identity_id 或標記 legacy_unmatched 的），
+ * 同一個人、同一個企劃底下，商品內容（名稱/款式/數量/單價）跟交易方式都一模一樣，很可能是同一份
+ * 舊資料被重複匯入造成的。前台正常下單不在掃描範圍內，因為客人本來就可能真的買兩次一樣的東西。
  */
 export async function GET(req: Request) {
   try {
@@ -26,7 +25,8 @@ export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
   const { data: orders, error } = await supabase
     .from("orders")
-    .select("id, order_no, username, plan_id, plan_name_snapshot, payment, paid_amount, legacy_unmatched, created_at, order_items(product_name, style, qty, unit_price)")
+    .select("id, order_no, username, plan_id, plan_name_snapshot, payment, paid_amount, legacy_unmatched, legacy_identity_id, created_at, order_items(product_name, style, qty, unit_price)")
+    .or("legacy_identity_id.not.is.null,legacy_unmatched.eq.true") // 只掃舊資料匯入來的訂單，前台正常下單不比對（客人本來就可能真的買兩次一樣的東西）
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -38,7 +38,10 @@ export async function GET(req: Request) {
       .sort()
       .join(";");
     if (!itemSig) continue; // 沒有商品明細的不比對
-    const key = `${o.plan_id}::${o.payment}::${itemSig}`;
+    // 一定要「同一個人」才算重複：同一個身份名冊 ID，或是帳號完全一樣（不分大小寫）。
+    // 只是商品內容剛好一樣、但帳號不同的，是不同客人各自買了同款商品，不是重複匯入。
+    const personKey = o.legacy_identity_id || `u:${String(o.username || "").toLowerCase()}`;
+    const key = `${o.plan_id}::${personKey}::${o.payment}::${itemSig}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(o);
   }
