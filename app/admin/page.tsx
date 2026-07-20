@@ -352,10 +352,13 @@ export default function AdminPage() {
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
       const siblingIds = next.filter((c) => (c.parent_id || null) === (dragged.parent_id || null)).map((c) => c.id);
+      // 畫面排序是照 sort_order 欄位排的，這裡要同步更新本地的 sort_order，畫面才會立刻反映新順序
+      const orderMap = new Map(siblingIds.map((id, idx) => [id, idx]));
+      const updated = next.map((c) => (orderMap.has(c.id) ? { ...c, sort_order: orderMap.get(c.id)! } : c));
       callJson("/api/admin/categories/reorder", "POST", { ids: siblingIds }).catch((e: any) => {
         setCategoryMsg("排序儲存失敗：" + e.message);
       });
-      return next;
+      return updated;
     });
     setDraggedCategoryId(null);
   }
@@ -905,6 +908,15 @@ export default function AdminPage() {
       const d = await r.json();
       if (!r.ok) { setResetResult({ error: d.error || "清空失敗" }); return; }
       setResetResult(d);
+      const warnCount = d.warnings?.length || 0;
+      alert(
+        `已清空完成。\n\n刪除筆數：${Object.entries(d.deleted || {}).map(([k, v]) => `${k}(${v})`).join("、")}\n\n` +
+        (warnCount > 0
+          ? `有 ${warnCount} 項 Google Sheet／行事曆沒有清成功，需要自己手動處理，詳情：\n${d.warnings.join("\n")}`
+          : "Google Sheet／行事曆也都清乾淨了。") +
+        `\n\n即將登出，請用最高管理者邀請碼重新註冊 owner 帳號。`
+      );
+      setUnlocked(false);
     } catch {
       setResetResult({ error: "網路連線失敗，請再試一次" });
     } finally {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { requireAdminSession, requireOwnerSession } from "@/lib/adminAuth";
+import { requireAdminSession, requireOwnerSession, clearSessionCookieHeader } from "@/lib/adminAuth";
 import { requireSheetId, requireCostSheetId, deleteSheetTabIfExists } from "@/lib/googleSheets";
 import { deletePlanDeadlineEvent } from "@/lib/googleCalendar";
 import { syncPlansSheet, syncMembersSheet } from "@/lib/sheetsSync";
@@ -120,5 +120,7 @@ export async function POST(req: Request) {
     warnings.push("重寫會員總覽分頁失敗：" + (e?.message || "未知錯誤"));
   }
 
-  return NextResponse.json({ ok: true, deleted, warnings });
+  const res = NextResponse.json({ ok: true, deleted, warnings });
+  res.headers.set("Set-Cookie", clearSessionCookieHeader());
+  return res;
 }

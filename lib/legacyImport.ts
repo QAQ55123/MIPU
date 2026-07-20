@@ -156,7 +156,9 @@ async function buildIdentityIndex() {
 async function findOrCreateArchivedPlan(planCache: Map<string, any>, planName: string, orderDate: Date, commit: boolean) {
   if (planCache.has(planName)) return planCache.get(planName);
   const supabase = getSupabaseAdmin();
-  const { data: existing } = await supabase.from("plans").select("*").eq("name", planName).eq("is_legacy_archive", true).maybeSingle();
+  // 同名的話優先合併：不管是正常進行中的企劃、還是之前匯入建立的封存企劃，只要名字一樣就用同一筆，
+  // 舊訂單會直接掛進那個企劃底下，不會另外建立重複的封存版本。找不到同名的才新建一個封存企劃。
+  const { data: existing } = await supabase.from("plans").select("*").eq("name", planName).order("created_at", { ascending: true }).limit(1).maybeSingle();
   let plan = existing;
   if (!plan && commit) {
     const { data: created, error } = await supabase
