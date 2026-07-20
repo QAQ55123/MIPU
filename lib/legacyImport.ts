@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { google } from "googleapis";
 import { toDirectImageUrl } from "@/lib/imageUrl";
+import { normFb } from "@/lib/util";
 
 export function norm(v: any): string {
   return String(v ?? "").trim();
@@ -81,11 +82,13 @@ export async function importLegacyIdentitiesFromCsv(csvText: string, commit: boo
       continue;
     }
 
-    const { data: existing } = await supabase.from("legacy_identities").select("id").eq("fb_profile_url", fbProfileUrl).maybeSingle();
+    const { data: existing } = await supabase.from("legacy_identities").select("id").eq("fb_profile_url_norm", normFb(fbProfileUrl)).maybeSingle();
     if (existing) {
       const { error } = await supabase
         .from("legacy_identities")
         .update({
+          fb_profile_url: fbProfileUrl,
+          fb_profile_url_norm: normFb(fbProfileUrl),
           fb_nickname: fbNickname || null,
           line_nickname: lineNickname || null,
           discord_nickname: discordNickname || null,
@@ -94,10 +97,11 @@ export async function importLegacyIdentitiesFromCsv(csvText: string, commit: boo
         })
         .eq("id", existing.id);
       if (error) { results.push({ row: rowNo, label, status: "error", message: error.message }); skipped++; }
-      else { results.push({ row: rowNo, label, status: "ok", message: "更新" }); updated++; }
+      else { results.push({ row: rowNo, label, status: "ok", message: "更新（已存在，沒有重複建立）" }); updated++; }
     } else {
       const { error } = await supabase.from("legacy_identities").insert({
         fb_profile_url: fbProfileUrl,
+        fb_profile_url_norm: normFb(fbProfileUrl),
         fb_nickname: fbNickname || null,
         line_nickname: lineNickname || null,
         discord_nickname: discordNickname || null,
@@ -130,7 +134,7 @@ async function buildIdentityIndex() {
   const byNickname = new Map<string, any[]>();
   for (const id of identities || []) {
     if (id.claimed_by_member_id) id.claimedMember = memberMap.get(id.claimed_by_member_id) || null;
-    if (id.fb_profile_url) byFbUrl.set(norm(id.fb_profile_url).toLowerCase(), id);
+    if (id.fb_profile_url) byFbUrl.set(id.fb_profile_url_norm || normFb(id.fb_profile_url), id);
     for (const nick of [id.fb_nickname, id.line_nickname, id.discord_nickname, id.dc_account_name]) {
       if (!nick) continue;
       const key = norm(nick).toLowerCase();
@@ -140,7 +144,7 @@ async function buildIdentityIndex() {
   }
   function resolve(fbUrl: string, nickname: string): { identity: any | null; ambiguous: boolean } {
     if (fbUrl) {
-      const hit = byFbUrl.get(norm(fbUrl).toLowerCase());
+      const hit = byFbUrl.get(normFb(fbUrl));
       if (hit) return { identity: hit, ambiguous: false };
     }
     if (nickname) {
@@ -220,11 +224,21 @@ export async function importLegacyOrdersManual(rows: Record<string, any>[], comm
     if (!identity) unmatched++;
 
     if (!commit) {
-      results.push({ groupKey: g.groupKey, label: `${g.nickname} － ${g.planName} － ${g.items.length}項 小計NT$${total}`, matched: !!identity, ambiguous, status: "ok" });
+      const sourceRef = `manual:${g.planName}:${g.groupKey}`;
+      const { data: existingOrder } = await supabase.from("orders").select("order_no").eq("legacy_source_ref", sourceRef).maybeSingle();
+      const dupLabel = existingOrder ? `（已經匯入過，訂單編號 ${existingOrder.order_no}，正式匯入時會自動跳過）` : "";
+      results.push({ groupKey: g.groupKey, label: `${g.nickname} － ${g.planName} － ${g.items.length}項 小計NT$${total}${dupLabel}`, matched: !!identity, ambiguous, status: "ok" });
       continue;
     }
 
     try {
+      const sourceRef = `manual:${g.planName}:${g.groupKey}`;
+      const { data: existingOrder } = await supabase.from("orders").select("order_no").eq("legacy_source_ref", sourceRef).maybeSingle();
+      if (existingOrder) {
+        results.push({ groupKey: g.groupKey, label: `${g.nickname} － 已經匯入過了（訂單編號 ${existingOrder.order_no}），跳過`, matched: !!identity, ambiguous, status: "ok" });
+        continue;
+      }
+
       const plan = await findOrCreateArchivedPlan(planCache, g.planName, g.orderDate, true);
       for (const it of g.items) {
         const { data: existingProduct } = await supabase.from("products").select("id").eq("plan_id", plan.id).eq("name", it.name).eq("style", it.style).maybeSingle();
@@ -239,6 +253,7 @@ export async function importLegacyOrdersManual(rows: Record<string, any>[], comm
           order_no: genOrderNo(), plan_id: plan.id, plan_name_snapshot: g.planName,
           username: targetUsername, profile_url: profileUrl, payment: g.payment, paid_amount: g.paidAmount,
           created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
+          legacy_source_ref: sourceRef,
         }).select().single();
         if (!error) { order = data; break; }
         if (!String(error.message).includes("duplicate")) throw new Error(error.message);
@@ -327,11 +342,22 @@ export async function importLegacySheetTab(sheetId: string, tabName: string, com
     if (!identity) unmatched++;
 
     if (!commit) {
-      results.push({ orderNo: g.orderNo, label: `${g.nickname || "(無暱稱)"} － ${g.items.length}項 小計NT$${total}`, matched: !!identity, ambiguous, status: "ok" });
+      const sourceRef = `sheet:${sheetId}:${tabName}:${g.orderNo}`;
+      const { data: existingOrder } = await supabase.from("orders").select("order_no").eq("legacy_source_ref", sourceRef).maybeSingle();
+      const dupLabel = existingOrder ? `（已經匯入過，訂單編號 ${existingOrder.order_no}，正式匯入時會自動跳過）` : "";
+      results.push({ orderNo: g.orderNo, label: `${g.nickname || "(無暱稱)"} － ${g.items.length}項 小計NT$${total}${dupLabel}`, matched: !!identity, ambiguous, status: "ok" });
       continue;
     }
 
     try {
+      // 防止重複匯入：這筆訂單（依試算表+分頁+原始訂單編號識別）如果已經匯入過，就跳過不重複建立
+      const sourceRef = `sheet:${sheetId}:${tabName}:${g.orderNo}`;
+      const { data: existingOrder } = await supabase.from("orders").select("order_no").eq("legacy_source_ref", sourceRef).maybeSingle();
+      if (existingOrder) {
+        results.push({ orderNo: g.orderNo, label: `${g.nickname || "(無暱稱)"} － 已經匯入過了（訂單編號 ${existingOrder.order_no}），跳過`, matched: !!identity, ambiguous, status: "ok" });
+        continue;
+      }
+
       for (const it of g.items) {
         const { data: existingProduct } = await supabase.from("products").select("id").eq("plan_id", plan.id).eq("name", it.name).eq("style", it.style).maybeSingle();
         if (!existingProduct) {
@@ -348,6 +374,7 @@ export async function importLegacySheetTab(sheetId: string, tabName: string, com
           order_no: genOrderNo(), plan_id: plan.id, plan_name_snapshot: tabName,
           username: usernamePlaceholder, profile_url: profileUrl, payment: g.payment, paid_amount: 0,
           created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
+          legacy_source_ref: sourceRef,
         }).select().single();
         if (!error) { order = data; break; }
         if (!String(error.message).includes("duplicate")) throw new Error(error.message);

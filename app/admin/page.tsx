@@ -88,6 +88,11 @@ export default function AdminPage() {
   const [legacyRequestsMsg, setLegacyRequestsMsg] = useState("");
   const [legacyUnmatchedOrders, setLegacyUnmatchedOrders] = useState<any[]>([]);
   const [legacyUnmatchedMsg, setLegacyUnmatchedMsg] = useState("");
+  const [duplicateGroups, setDuplicateGroups] = useState<any[]>([]);
+  const [duplicateScanMsg, setDuplicateScanMsg] = useState("");
+  const [duplicateScanning, setDuplicateScanning] = useState(false);
+  const [duplicateSelected, setDuplicateSelected] = useState<Record<string, boolean>>({});
+  const [duplicateDeleting, setDuplicateDeleting] = useState(false);
   const [legacyReassignTarget, setLegacyReassignTarget] = useState<Record<string, string>>({});
 
   // 公告管理
@@ -98,6 +103,31 @@ export default function AdminPage() {
   const [checkoutNoticeInput, setCheckoutNoticeInput] = useState("");
   const [checkoutNoticeMsg, setCheckoutNoticeMsg] = useState("");
   const [checkoutNoticeSaving, setCheckoutNoticeSaving] = useState(false);
+
+  // 舊會員確認分頁：卡片收合狀態（預設全部收合，資料太長很難找其他分頁）
+  const [collapsedCards, setCollapsedCards] = useState<Record<string, boolean>>({
+    importIdentities: true,
+    importManual: true,
+    importSheet: true,
+    pendingRequests: true,
+    identitySearch: true,
+    unmatchedOrders: true,
+    duplicateOrders: true,
+  });
+  function toggleCard(key: string) {
+    setCollapsedCards((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+  function renderCardHeader(cardKey: string, title: string) {
+    return (
+      <h3
+        onClick={() => toggleCard(cardKey)}
+        style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", userSelect: "none" }}
+      >
+        {title}
+        <span style={{ fontSize: 13, color: "#8A8779" }}>{collapsedCards[cardKey] ? "▸ 展開" : "▾ 收合"}</span>
+      </h3>
+    );
+  }
 
   // 危險區域：清空所有資料
   const [resetConfirmText, setResetConfirmText] = useState("");
@@ -829,6 +859,45 @@ export default function AdminPage() {
       loadLegacyUnmatchedOrders();
     } catch (e: any) {
       setLegacyUnmatchedMsg("失敗：" + e.message);
+    }
+  }
+
+  async function loadDuplicateGroups() {
+    setDuplicateScanning(true);
+    setDuplicateScanMsg("");
+    try {
+      const r = await fetch("/api/admin/legacy-duplicate-orders", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      if (!r.ok) { setDuplicateScanMsg(d.error || "掃描失敗"); return; }
+      setDuplicateGroups(d.duplicateGroups || []);
+      const initSelected: Record<string, boolean> = {};
+      for (const g of d.duplicateGroups || []) {
+        for (const o of g.orders) initSelected[o.orderNo] = o.suggestDelete;
+      }
+      setDuplicateSelected(initSelected);
+      if ((d.duplicateGroups || []).length === 0) setDuplicateScanMsg("沒有掃到重複的訂單。");
+    } catch {
+      setDuplicateScanMsg("網路連線失敗，請再試一次");
+    } finally {
+      setDuplicateScanning(false);
+    }
+  }
+
+  async function deleteDuplicateOrders() {
+    const orderNos = Object.entries(duplicateSelected).filter(([, v]) => v).map(([k]) => k);
+    if (orderNos.length === 0) { setDuplicateScanMsg("沒有勾選任何訂單"); return; }
+    if (!confirm(`確定要刪除這 ${orderNos.length} 筆訂單嗎？無法復原。`)) return;
+    setDuplicateDeleting(true);
+    try {
+      const d = await callJson("/api/admin/legacy-duplicate-orders", "POST", { orderNos });
+      setDuplicateScanMsg(`已刪除 ${d.deleted} 筆重複訂單。`);
+      loadDuplicateGroups();
+      loadLegacyUnmatchedOrders();
+    } catch (e: any) {
+      setDuplicateScanMsg("失敗：" + e.message);
+    } finally {
+      setDuplicateDeleting(false);
     }
   }
 
@@ -1742,7 +1811,9 @@ export default function AdminPage() {
           {activeSection === "legacy" && currentRole === "owner" && (
             <>
         <div className="auth-card">
-          <h3>匯入身份名冊</h3>
+          {renderCardHeader("importIdentities", "匯入身份名冊")}
+          {!collapsedCards.importIdentities && (
+          <>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
             上傳 FB／LINE／Discord 暱稱對照表（CSV 檔案，從 Google 試算表「檔案 → 下載 → 逗號分隔值」匯出）。
           </p>
@@ -1770,10 +1841,14 @@ export default function AdminPage() {
               )}
             </div>
           )}
+          </>
+          )}
         </div>
 
         <div className="auth-card">
-          <h3>匯入舊訂單（手動範本）</h3>
+          {renderCardHeader("importManual", "匯入舊訂單（手動範本）")}
+          {!collapsedCards.importManual && (
+          <>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
             格式不固定、沒辦法自動解析的舊分頁，用手動範本整理後上傳（.xlsx）。建議先「匯入身份名冊」再匯入這個，配對才會準。
           </p>
@@ -1804,10 +1879,14 @@ export default function AdminPage() {
               )}
             </div>
           )}
+          </>
+          )}
         </div>
 
         <div className="auth-card">
-          <h3>匯入舊訂單（自動解析舊試算表）</h3>
+          {renderCardHeader("importSheet", "匯入舊訂單（自動解析舊試算表）")}
+          {!collapsedCards.importSheet && (
+          <>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
             商品目錄+訂單明細的標準格式分頁，可以直接讀取解析。一次只處理一個分頁，避免逾時。
             這份舊試算表要先分享給服務帳戶（跟現在系統同步用的是同一組），權限給「檢視者」即可。
@@ -1857,10 +1936,14 @@ export default function AdminPage() {
               </div>
             );
           })}
+          </>
+          )}
         </div>
 
         <div className="auth-card">
-          <h3>待處理請求</h3>
+          {renderCardHeader("pendingRequests", "待處理請求")}
+          {!collapsedCards.pendingRequests && (
+          <>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
             舊會員在「舊會員整合」頁面輸入暱稱找不到資料時，送出的協助請求。
           </p>
@@ -1877,10 +1960,14 @@ export default function AdminPage() {
             </div>
           ))}
           <div style={{ fontSize: 13, marginTop: 6 }}>{legacyRequestsMsg}</div>
+          </>
+          )}
         </div>
 
         <div className="auth-card">
-          <h3>身份名冊查詢</h3>
+          {renderCardHeader("identitySearch", "身份名冊查詢")}
+          {!collapsedCards.identitySearch && (
+          <>
           <div className="id-row">
             <span className="id-label">搜尋</span>
             <input
@@ -1905,10 +1992,14 @@ export default function AdminPage() {
               </div>
             </div>
           ))}
+          </>
+          )}
         </div>
 
         <div className="auth-card">
-          <h3>配對不到身份的舊訂單</h3>
+          {renderCardHeader("unmatchedOrders", "配對不到身份的舊訂單")}
+          {!collapsedCards.unmatchedOrders && (
+          <>
           <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
             匯入舊資料時對不到身份名冊的訂單，可以在這裡查到內容，手動指定給正確的會員帳號（帳號要已經存在）。
           </p>
@@ -1935,6 +2026,52 @@ export default function AdminPage() {
             </div>
           ))}
           <div style={{ fontSize: 13, marginTop: 6 }}>{legacyUnmatchedMsg}</div>
+          </>
+          )}
+        </div>
+
+        <div className="auth-card">
+          {renderCardHeader("duplicateOrders", "掃描重複訂單")}
+          {!collapsedCards.duplicateOrders && (
+          <>
+          <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+            同一個企劃裡，商品內容跟交易方式一模一樣的訂單，很可能是舊資料被重複匯入造成的。
+            這裡列出來讓你確認，預設會勾選「保留最早那筆、其餘刪除」，可以自己調整勾選後再刪除。
+          </p>
+          <button className="btn small" onClick={loadDuplicateGroups} disabled={duplicateScanning} style={{ marginTop: 8 }}>
+            {duplicateScanning ? "掃描中…" : "開始掃描"}
+          </button>
+          <div style={{ fontSize: 13, margin: "8px 0" }}>{duplicateScanMsg}</div>
+          {duplicateGroups.map((g, gi) => (
+            <div key={gi} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{g.planName}</div>
+              {g.orders.map((o: any) => (
+                <label key={o.orderNo} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, padding: "4px 0", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!duplicateSelected[o.orderNo]}
+                    onChange={(e) => setDuplicateSelected((prev) => ({ ...prev, [o.orderNo]: e.target.checked }))}
+                    style={{ marginTop: 3 }}
+                  />
+                  <span>
+                    訂單 {o.orderNo}　帳號：{o.username}{o.legacyUnmatched ? "（未配對身份）" : ""}　{o.payment}　
+                    {new Date(o.createdAt).toLocaleString("zh-TW")}
+                    <br />
+                    <span style={{ color: "#8A8779" }}>
+                      {o.items.map((it: any, i: number) => `${it.name}${it.style ? `(${it.style})` : ""}x${it.qty}`).join("、")}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ))}
+          {duplicateGroups.length > 0 && (
+            <button className="btn small danger" onClick={deleteDuplicateOrders} disabled={duplicateDeleting} style={{ marginTop: 8 }}>
+              {duplicateDeleting ? "刪除中…" : "刪除勾選的訂單"}
+            </button>
+          )}
+          </>
+          )}
         </div>
             </>
           )}

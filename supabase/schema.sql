@@ -115,6 +115,7 @@ create table if not exists orders (
   cancel_requested_at timestamptz,                 -- 使用者申請取消訂單的時間，要等最高管理者審核（核准＝刪除、拒絕＝清空這個欄位）
   legacy_identity_id uuid,                         -- 舊資料匯入：對應到 legacy_identities 的身份（沒有特別建外鍵，靠程式端維護）
   legacy_unmatched   boolean not null default false, -- 舊資料匯入時對不到身份名冊，需要後台手動指定擁有者
+  legacy_source_ref  text,                           -- 舊資料匯入的來源識別碼，防止重複匯入同一筆訂單
   created_at         timestamptz default now(),
   updated_at         timestamptz default now()
 );
@@ -157,6 +158,7 @@ on conflict (id) do nothing;
 create table if not exists legacy_identities (
   id                    uuid primary key default gen_random_uuid(),
   fb_profile_url        text not null,
+  fb_profile_url_norm   text,                     -- 正規化過的網址，用來判斷是不是同一個人，防止重複匯入
   fb_nickname           text,
   line_nickname         text,
   discord_nickname      text,
@@ -170,6 +172,7 @@ create index if not exists idx_legacy_identities_fb_nick on legacy_identities (l
 create index if not exists idx_legacy_identities_line_nick on legacy_identities (lower(line_nickname));
 create index if not exists idx_legacy_identities_discord_nick on legacy_identities (lower(discord_nickname));
 create index if not exists idx_legacy_identities_dc_account on legacy_identities (lower(dc_account_name));
+create unique index if not exists idx_legacy_identities_fb_profile_url_norm on legacy_identities (fb_profile_url_norm) where fb_profile_url_norm is not null;
 create index if not exists idx_legacy_identities_claimed_by on legacy_identities (claimed_by_member_id);
 
 create table if not exists legacy_claim_requests (
@@ -186,6 +189,7 @@ create index if not exists idx_legacy_claim_requests_status on legacy_claim_requ
 
 alter table orders add column if not exists legacy_identity_id uuid;
 create index if not exists idx_orders_legacy_identity on orders (legacy_identity_id);
+create unique index if not exists idx_orders_legacy_source_ref on orders (legacy_source_ref) where legacy_source_ref is not null;
 
 -- 公告：可發佈多條，保留歷史紀錄
 create table if not exists announcements (
