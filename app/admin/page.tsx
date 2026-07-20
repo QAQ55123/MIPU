@@ -862,6 +862,18 @@ export default function AdminPage() {
     }
   }
 
+  async function deleteLegacyUnmatchedOrder(orderNo: string) {
+    if (!confirm(`確定要刪除訂單 ${orderNo} 嗎？無法復原。`)) return;
+    setLegacyUnmatchedMsg("處理中…");
+    try {
+      const d = await callJson("/api/admin/legacy-orders", "DELETE", { orderNo });
+      setLegacyUnmatchedMsg(d.syncWarning || "已刪除。");
+      loadLegacyUnmatchedOrders();
+    } catch (e: any) {
+      setLegacyUnmatchedMsg("失敗：" + e.message);
+    }
+  }
+
   async function loadDuplicateGroups() {
     setDuplicateScanning(true);
     setDuplicateScanMsg("");
@@ -891,7 +903,7 @@ export default function AdminPage() {
     setDuplicateDeleting(true);
     try {
       const d = await callJson("/api/admin/legacy-duplicate-orders", "POST", { orderNos });
-      setDuplicateScanMsg(`已刪除 ${d.deleted} 筆重複訂單。`);
+      setDuplicateScanMsg(d.syncWarning ? `已刪除 ${d.deleted} 筆重複訂單，但部分 Sheet 同步失敗：${d.syncWarning}` : `已刪除 ${d.deleted} 筆重複訂單。`);
       loadDuplicateGroups();
       loadLegacyUnmatchedOrders();
     } catch (e: any) {
@@ -2022,6 +2034,7 @@ export default function AdminPage() {
                   onChange={(e) => setLegacyReassignTarget((prev) => ({ ...prev, [o.orderNo]: e.target.value }))}
                 />
                 <button className="btn small" onClick={() => reassignLegacyOrder(o.orderNo)}>改派</button>
+                <button className="btn small danger" onClick={() => deleteLegacyUnmatchedOrder(o.orderNo)}>刪除</button>
               </div>
             </div>
           ))}

@@ -49,7 +49,15 @@ function genOrderNo(): string {
 function parseFlexibleDate(raw: any): Date {
   const s = norm(raw);
   if (!s) return new Date();
-  const d = new Date(s.replace(/\//g, "-"));
+  // 舊試算表裡的時間是台灣時間（UTC+8），但伺服器是用 UTC 在跑，
+  // 如果不明確指定時區，"2026/07/20 16:20" 會被誤判成 UTC 時間，換算回台灣時間就會多 8 小時。
+  let iso = s.replace(/\//g, "-").trim();
+  if (!/[+-]\d\d:\d\d$/.test(iso) && !/Z$/i.test(iso)) {
+    iso = iso.includes(" ") ? iso.replace(" ", "T") : iso;
+    if (!iso.includes("T")) iso += "T00:00:00";
+    iso += "+08:00";
+  }
+  const d = new Date(iso);
   return isNaN(d.getTime()) ? new Date() : d;
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession, requireOwnerSession } from "@/lib/adminAuth";
+import { syncOrderRealtimeToPlanTab, syncOnePlanCostTab } from "@/lib/planSheetSync";
 
 export const dynamic = "force-dynamic";
 
@@ -79,13 +80,30 @@ export async function POST(req: Request) {
   if (orderNos.length === 0) return NextResponse.json({ error: "沒有選擇要刪除的訂單" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { data: toDelete } = await supabase.from("orders").select("id").in("order_no", orderNos);
+  const { data: toDelete } = await supabase.from("orders").select("id, plan_id, plans(name)").in("order_no", orderNos);
   const ids = (toDelete || []).map((o) => o.id);
   if (ids.length === 0) return NextResponse.json({ ok: true, deleted: 0 });
+
+  // 先記下受影響的企劃（可能一次刪掉好幾個不同企劃的重複訂單），刪除後逐一重新同步
+  const planMap = new Map<string, string>();
+  for (const o of toDelete || []) {
+    const planName = (o as any).plans?.name;
+    if (o.plan_id && planName) planMap.set(o.plan_id, planName);
+  }
 
   await supabase.from("order_items").delete().in("order_id", ids);
   const { error } = await supabase.from("orders").delete().in("id", ids);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true, deleted: ids.length });
+  const syncWarnings: string[] = [];
+  for (const [planId, planName] of planMap) {
+    try {
+      await syncOrderRealtimeToPlanTab(planId, planName);
+      await syncOnePlanCostTab(planId, planName);
+    } catch (e: any) {
+      syncWarnings.push(`「${planName}」同步失敗：${e?.message || "未知錯誤"}`);
+    }
+  }
+
+  return NextResponse.json({ ok: true, deleted: ids.length, syncWarning: syncWarnings.length ? syncWarnings.join("；") : undefined });
 }

@@ -89,3 +89,42 @@ export async function PATCH(req: Request) {
 
   return NextResponse.json({ ok: true, syncWarning: syncWarning || undefined });
 }
+
+/** 直接刪除一筆配對不到身份的舊訂單（僅限最高權限）body: { orderNo } */
+export async function DELETE(req: Request) {
+  try {
+    requireAdminSession(req);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 401 });
+  }
+  try {
+    requireOwnerSession(req);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 403 });
+  }
+
+  const body = await req.json();
+  const orderNo = String(body.orderNo || "").trim();
+  if (!orderNo) return NextResponse.json({ error: "缺少訂單編號" }, { status: 400 });
+
+  const supabase = getSupabaseAdmin();
+  const { data: order } = await supabase.from("orders").select("id, plan_id, plans(name)").eq("order_no", orderNo).maybeSingle();
+  if (!order) return NextResponse.json({ error: "找不到這張訂單" }, { status: 404 });
+
+  await supabase.from("order_items").delete().eq("order_id", order.id);
+  const { error } = await supabase.from("orders").delete().eq("id", order.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const planName = (order as any).plans?.name;
+  let syncWarning = "";
+  if (order.plan_id && planName) {
+    try {
+      await syncOrderRealtimeToPlanTab(order.plan_id, planName);
+      await syncOnePlanCostTab(order.plan_id, planName);
+    } catch (e: any) {
+      syncWarning = "訂單已刪除，但同步到 Google Sheet 失敗：" + (e?.message || "未知錯誤");
+    }
+  }
+
+  return NextResponse.json({ ok: true, syncWarning: syncWarning || undefined });
+}
