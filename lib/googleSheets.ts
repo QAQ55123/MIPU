@@ -159,6 +159,63 @@ export async function runBatch(sheets: SheetsClient, spreadsheetId: string, requ
   await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
 }
 
+export type SheetMetaCache = Map<string, Map<string, number>>; // spreadsheetId -> (分頁名稱 -> sheetId)
+
+/** 查詢並快取一份試算表裡「分頁名稱→sheetId」的對照表，同一次同步流程裡，
+ *  同一份試算表只會真的呼叫一次 spreadsheets.get，其餘都直接讀快取，不會再一直重複查 */
+async function getSheetMetaCached(sheets: SheetsClient, spreadsheetId: string, cache: SheetMetaCache): Promise<Map<string, number>> {
+  const cached = cache.get(spreadsheetId);
+  if (cached) return cached;
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const map = new Map<string, number>();
+  for (const s of meta.data.sheets || []) {
+    if (s.properties?.title != null && s.properties?.sheetId != null) map.set(s.properties.title, s.properties.sheetId);
+  }
+  cache.set(spreadsheetId, map);
+  return map;
+}
+
+/** 跟 ensureSheetExists 功能一樣，但會用快取的分頁清單，避免每個企劃都各自查一次 spreadsheets.get。
+ *  適合「立即完整同步一次」這種一次要處理很多企劃的情境。 */
+export async function ensureSheetExistsCached(
+  sheets: SheetsClient,
+  spreadsheetId: string,
+  sheetName: string,
+  cache: SheetMetaCache,
+  insertAtIndex?: number
+): Promise<number> {
+  const map = await getSheetMetaCached(sheets, spreadsheetId, cache);
+  const existing = map.get(sheetName);
+  if (existing != null) return existing;
+  const props: any = { title: sheetName };
+  if (insertAtIndex != null) props.index = insertAtIndex;
+  const res = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: props } }] },
+  });
+  const sheetId = res.data.replies?.[0]?.addSheet?.properties?.sheetId ?? 0;
+  map.set(sheetName, sheetId);
+  return sheetId;
+}
+
+/** 一次讀取「同一份試算表裡」好幾個範圍的值（例如好幾個企劃各自的分頁），
+ *  用 Google 的 batchGet，不管要讀幾個範圍都只算「一次」讀取用量。
+ *  範圍如果對應到不存在的分頁會整批出錯，所以呼叫端要自己先過濾掉還不存在的分頁。 */
+export async function batchGetValues(
+  sheets: SheetsClient,
+  spreadsheetId: string,
+  ranges: string[],
+  valueRenderOption?: "FORMULA"
+): Promise<Record<string, any[][]>> {
+  if (ranges.length === 0) return {};
+  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges, valueRenderOption });
+  const map: Record<string, any[][]> = {};
+  (res.data.valueRanges || []).forEach((vr, i) => {
+    map[ranges[i]] = vr.values || [];
+  });
+  return map;
+}
+
 /** 刪除指定名稱的分頁（如果存在的話；不存在就什麼都不做，安全可以重複呼叫） */
 export async function deleteSheetTabIfExists(spreadsheetId: string, sheetName: string) {
   const sheets = await getSheets();
