@@ -118,7 +118,11 @@ export default function Home() {
       setView("account");
     } else {
       const category = params.get("category");
+      setSelectedCategoryId(category || null);
       loadPlans(category || null, "");
+      if (category) {
+        setExpandedIds((prev) => new Set(prev).add(category));
+      }
     }
   }
 

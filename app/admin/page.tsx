@@ -1685,7 +1685,7 @@ export default function AdminPage() {
 
           <div className="id-row">
             <span className="id-label">商品名稱</span>
-            <input type="text" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：原味米菓" disabled={!!productForm.id} />
+            <input type="text" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：原味米菓" />
           </div>
           {!productForm.id && Array.from(new Set(products.map((p) => p.name))).length > 0 && (
             <div className="id-row">
