@@ -39,7 +39,7 @@ export async function syncMembersSheet() {
     m.profile_url,
     m.email,
     m.email_verified ? "已驗證" : "未驗證",
-    new Date(m.created_at).toLocaleString("zh-TW"),
+    new Date(m.created_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }),
   ]);
   await overwriteSheet("會員", ["帳號", "個人頁網址", "Email", "信箱驗證", "註冊時間"], rows);
 }
@@ -51,10 +51,10 @@ export async function syncPlansSheet() {
   const rows = (data || []).map((p) => [
     p.name,
     p.categories?.name || "（未分類）",
-    p.deadline ? new Date(p.deadline).toLocaleString("zh-TW") : "常駐",
+    p.deadline ? new Date(p.deadline).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }) : "常駐",
     Number(p.cod_limit) || 0,
     p.fulfillment_status || "",
-    new Date(p.created_at).toLocaleString("zh-TW"),
+    new Date(p.created_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }),
   ]);
   await overwriteSheet("企劃", ["企劃名稱", "分類", "截止時間", "取付上限", "企劃狀態", "建立時間"], rows);
 }

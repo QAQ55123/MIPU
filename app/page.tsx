@@ -1227,7 +1227,7 @@ export default function Home() {
                       ) : (
                         announcements.map((a) => (
                           <div key={a.id} className="mibu-announcement-panel-item">
-                            <div className="mibu-announcement-panel-date">{new Date(a.createdAt).toLocaleString("zh-TW")}</div>
+                            <div className="mibu-announcement-panel-date">{new Date(a.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</div>
                             <div className="mibu-announcement-panel-content-row">
                               <span className="mibu-announcement-panel-content" ref={measureTruncation(`bell-${a.id}`)}>
                                 {a.content}
@@ -1547,7 +1547,7 @@ export default function Home() {
                           {p.deadline && (
                             <p className="plan-card-v2-meta">
                               {p.closed ? "已於 " : "截止 "}
-                              {new Date(p.deadline).toLocaleString("zh-TW")}
+                              {new Date(p.deadline).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                             </p>
                           )}
                         </div>
@@ -1601,7 +1601,7 @@ export default function Home() {
                         {activePlan.deadline && (
                           <div className="product-plan-deadline">
                             {activePlan.closed ? "已於 " : "截止 "}
-                            {new Date(activePlan.deadline).toLocaleString("zh-TW")}
+                            {new Date(activePlan.deadline).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                           </div>
                         )}
                       </div>
@@ -1775,7 +1775,7 @@ export default function Home() {
                             {o.planName}
                           </span>
                         </span>
-                        <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW")}</span>
+                        <span className="hist-time">{new Date(o.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</span>
                         <ChevronDown size={22} className="hist-toggle-icon" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
                       </div>
                       {expanded && (
@@ -1837,7 +1837,7 @@ export default function Home() {
                           {p.deadline && (
                             <p className="plan-card-v2-meta">
                               {p.closed ? "已於 " : "截止 "}
-                              {new Date(p.deadline).toLocaleString("zh-TW")}
+                              {new Date(p.deadline).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                             </p>
                           )}
                         </div>
@@ -1905,7 +1905,7 @@ export default function Home() {
                           {deadline && (
                             <span className="cart-group-deadline">
                               {isInactive ? "已於 " : "截止 "}
-                              {new Date(deadline).toLocaleString("zh-TW")}
+                              {new Date(deadline).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                             </span>
                           )}
                         </div>
@@ -2232,7 +2232,7 @@ export default function Home() {
                 <X size={18} />
               </button>
             </div>
-            <div className="announcement-modal-date">{new Date(announcementModal.createdAt).toLocaleString("zh-TW")}</div>
+            <div className="announcement-modal-date">{new Date(announcementModal.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</div>
             <div className="announcement-modal-content">{announcementModal.content}</div>
           </div>
         </div>

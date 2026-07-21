@@ -58,6 +58,9 @@ export default function AdminPage() {
   const [activePlanForProducts, setActivePlanForProducts] = useState<PlanAdmin | null>(null);
   const [products, setProducts] = useState<ProductAdmin[]>([]);
   const [productForm, setProductForm] = useState(emptyProductForm);
+  const [productRows, setProductRows] = useState<{ style: string; price: string; imageUrl: string }[]>([{ style: "", price: "0", imageUrl: "" }]);
+  const [uploadingRowImg, setUploadingRowImg] = useState<number | null>(null);
+  const [productRowImageUrlInputs, setProductRowImageUrlInputs] = useState<Record<number, string>>({});
   const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
   const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
@@ -434,11 +437,27 @@ export default function AdminPage() {
     setDraggedPlanId(null);
   }
 
+  /** 把資料庫存的 UTC 時間，轉成台灣時間格式的 datetime-local 字串（給表單顯示用） */
+  function toTaipeiDatetimeLocal(iso: string): string {
+    const d = new Date(iso);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value || "00";
+    return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+  }
+
+  /** 把表單填的 datetime-local 字串，當成台灣時間解讀，轉成正確的 UTC ISO 字串存進資料庫
+   *  （不管管理者的瀏覽器本身設定在哪個時區，都固定用台灣時間解讀，避免跳時區） */
+  function fromTaipeiDatetimeLocal(value: string): string {
+    return new Date(`${value}:00+08:00`).toISOString();
+  }
+
   function editPlan(p: PlanAdmin) {
     setPlanForm({
       id: p.id,
       name: p.name,
-      deadline: p.deadline ? p.deadline.slice(0, 16) : "",
+      deadline: p.deadline ? toTaipeiDatetimeLocal(p.deadline) : "",
       imageUrl: p.imageUrl || "",
       codLimit: String(p.codLimit || 0),
       allowCodOnRemitLink: !!(p as any).allowCodOnRemitLink,
@@ -456,7 +475,7 @@ export default function AdminPage() {
     setPlanMsg("處理中…");
     const payload = {
       name: planForm.name,
-      deadline: planForm.deadline ? new Date(planForm.deadline).toISOString() : null,
+      deadline: planForm.deadline ? fromTaipeiDatetimeLocal(planForm.deadline) : null,
       imageUrl: planForm.imageUrl || null,
       codLimit: planForm.codLimit,
       allowCodOnRemitLink: planForm.allowCodOnRemitLink,
@@ -563,40 +582,96 @@ export default function AdminPage() {
   }
 
   // ================= 商品 =================
-  async function openProductManager(p: PlanAdmin) {
-    setActivePlanForProducts(p);
-    setProductForm(emptyProductForm);
-    setActiveSection("products");
-    const r = await fetch(`/api/admin/products?planId=${p.id}`);
+  async function loadProducts(planId: string) {
+    const r = await fetch(`/api/admin/products?planId=${planId}`);
     if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
     const d = await r.json();
     setProducts(d.products || []);
+  }
+
+  async function openProductManager(p: PlanAdmin) {
+    setActivePlanForProducts(p);
+    setProductForm(emptyProductForm);
+    setProductRows([{ style: "", price: "0", imageUrl: "" }]);
+    setActiveSection("products");
+    await loadProducts(p.id);
   }
 
   function editProduct(p: ProductAdmin) {
     setProductForm({ id: p.id, name: p.name, style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "" });
   }
 
+  function addProductRow() {
+    setProductRows((rows) => [...rows, { style: "", price: rows[rows.length - 1]?.price || "0", imageUrl: "" }]);
+  }
+  function removeProductRow(idx: number) {
+    setProductRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
+    setProductRowImageUrlInputs((prev) => {
+      const next = { ...prev };
+      delete next[idx];
+      return next;
+    });
+  }
+  function updateProductRow(idx: number, field: "style" | "price" | "imageUrl", value: string) {
+    setProductRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+
+  async function handleProductRowImageUpload(idx: number, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingRowImg(idx);
+    try {
+      const url = await uploadImage(file);
+      updateProductRow(idx, "imageUrl", url);
+    } catch (err: any) {
+      setProductMsg("圖片上傳失敗：" + err.message);
+    } finally {
+      setUploadingRowImg(null);
+    }
+  }
+
+  function applyProductRowImageUrl(idx: number) {
+    const v = (productRowImageUrlInputs[idx] || "").trim();
+    if (!v) return;
+    updateProductRow(idx, "imageUrl", toDirectImageUrl(v));
+    setProductRowImageUrlInputs((prev) => ({ ...prev, [idx]: "" }));
+  }
+
   async function saveProduct() {
     if (!activePlanForProducts) return;
     if (!productForm.name.trim()) return setProductMsg("請填寫商品名稱");
     setProductMsg("處理中…");
-    const payload = {
-      planId: activePlanForProducts.id,
-      name: productForm.name,
-      style: productForm.style,
-      price: productForm.price,
-      imageUrl: productForm.imageUrl || null,
-    };
     try {
       if (productForm.id) {
-        await callJson("/api/admin/products", "PUT", { id: productForm.id, ...payload });
+        // 編輯既有商品：單筆更新
+        await callJson("/api/admin/products", "PUT", {
+          id: productForm.id,
+          planId: activePlanForProducts.id,
+          name: productForm.name,
+          style: productForm.style,
+          price: productForm.price,
+          imageUrl: productForm.imageUrl || null,
+        });
+        setProductForm(emptyProductForm);
+        setProductMsg("已儲存");
       } else {
-        await callJson("/api/admin/products", "POST", payload);
+        // 新增商品：把每一列款式/金額各自建立一筆，同名不同款式
+        const rows = productRows.filter((r) => r.style.trim() || productRows.length === 1);
+        for (const row of rows) {
+          await callJson("/api/admin/products", "POST", {
+            planId: activePlanForProducts.id,
+            name: productForm.name,
+            style: row.style,
+            price: row.price || "0",
+            imageUrl: row.imageUrl || null,
+          });
+        }
+        // 商品名稱保留，方便接著建下一批款式；款式列表清空回一列
+        setProductForm((f) => ({ ...f, style: "", price: "0" }));
+        setProductRows([{ style: "", price: "0", imageUrl: "" }]);
+        setProductMsg(`已新增 ${rows.length} 筆`);
       }
-      setProductForm(emptyProductForm);
-      setProductMsg("已儲存");
-      openProductManager(activePlanForProducts);
+      await loadProducts(activePlanForProducts.id);
     } catch (e: any) {
       setProductMsg("失敗：" + e.message);
     }
@@ -1546,7 +1621,7 @@ export default function AdminPage() {
                   >
                     <div>
                       <div style={{ fontSize: 14 }}><span style={{ color: "#B0AC9C", marginRight: 6 }} title="拖曳排序">⠿</span>{p.name}</div>
-                      <div style={{ fontSize: 12, color: "#8A8779" }}>{p.categoryName || "未分類"}{p.deadline ? `　截止 ${new Date(p.deadline).toLocaleString("zh-TW")}` : ""}</div>
+                      <div style={{ fontSize: 12, color: "#8A8779" }}>{p.categoryName || "未分類"}{p.deadline ? `　截止 ${new Date(p.deadline).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}` : ""}</div>
                     </div>
                     <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       <button className="btn small secondary" onClick={() => openProductManager(p)}>管理商品</button>
@@ -1610,31 +1685,103 @@ export default function AdminPage() {
 
           <div className="id-row">
             <span className="id-label">商品名稱</span>
-            <input type="text" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：原味米菓" />
+            <input type="text" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：原味米菓" disabled={!!productForm.id} />
           </div>
-          <div className="id-row">
-            <span className="id-label">款式</span>
-            <input type="text" value={productForm.style} onChange={(e) => setProductForm((f) => ({ ...f, style: e.target.value }))} placeholder="例如：6入（沒有分款式可留空）" />
-          </div>
-          <div className="id-row">
-            <span className="id-label">價格</span>
-            <input type="number" value={productForm.price} onChange={(e) => setProductForm((f) => ({ ...f, price: e.target.value }))} />
-          </div>
-          <div className="id-row">
-            <span className="id-label">商品圖片</span>
-            <input type="file" accept="image/*" onChange={handleProductImageUpload} />
-          </div>
-          <div className="id-row">
-            <span className="id-label"></span>
-            <input type="text" value={productImageUrlInput} onChange={(e) => setProductImageUrlInput(e.target.value)} placeholder="或貼上圖片網址（支援 Google Drive 分享連結）" />
-            <button className="btn small secondary" onClick={applyProductImageUrl}>使用這個網址</button>
-          </div>
-          {uploadingProductImg && <div style={{ fontSize: 13, color: "#8A8779" }}>圖片上傳中…</div>}
-          {productForm.imageUrl && <img src={productForm.imageUrl} alt="預覽" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, marginBottom: 8 }} />}
+          {!productForm.id && Array.from(new Set(products.map((p) => p.name))).length > 0 && (
+            <div className="id-row">
+              <span className="id-label">快速選擇</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {Array.from(new Set(products.map((p) => p.name))).map((name) => (
+                  <span
+                    key={name}
+                    onClick={() => setProductForm((f) => ({ ...f, name }))}
+                    style={{
+                      fontSize: 12, padding: "4px 10px", borderRadius: 999, cursor: "pointer",
+                      background: productForm.name === name ? "#33415C" : "#F1EFE8",
+                      color: productForm.name === name ? "#fff" : "#5F5E5A",
+                    }}
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {productForm.id ? (
+            <>
+              <div className="id-row">
+                <span className="id-label">款式</span>
+                <input type="text" value={productForm.style} onChange={(e) => setProductForm((f) => ({ ...f, style: e.target.value }))} placeholder="例如：6入（沒有分款式可留空）" />
+              </div>
+              <div className="id-row">
+                <span className="id-label">價格</span>
+                <input type="number" value={productForm.price} onChange={(e) => setProductForm((f) => ({ ...f, price: e.target.value }))} />
+              </div>
+              <div className="id-row">
+                <span className="id-label">商品圖片</span>
+                <input type="file" accept="image/*" onChange={handleProductImageUpload} />
+              </div>
+              <div className="id-row">
+                <span className="id-label"></span>
+                <input type="text" value={productImageUrlInput} onChange={(e) => setProductImageUrlInput(e.target.value)} placeholder="或貼上圖片網址（支援 Google Drive 分享連結）" />
+                <button className="btn small secondary" onClick={applyProductImageUrl}>使用這個網址</button>
+              </div>
+              {uploadingProductImg && <div style={{ fontSize: 13, color: "#8A8779" }}>圖片上傳中…</div>}
+              {productForm.imageUrl && <img src={productForm.imageUrl} alt="預覽" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, marginBottom: 8 }} />}
+            </>
+          ) : (
+            <div className="id-row" style={{ alignItems: "flex-start" }}>
+              <span className="id-label" style={{ paddingTop: 8 }}>款式／價格／圖片</span>
+              <div style={{ flex: 1 }}>
+                {productRows.map((row, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, marginBottom: 10, padding: 10, background: "#FAF8F2", borderRadius: 8, alignItems: "flex-start" }}>
+                    {row.imageUrl && <img src={row.imageUrl} alt="預覽" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />}
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          type="text"
+                          value={row.style}
+                          onChange={(e) => updateProductRow(i, "style", e.target.value)}
+                          placeholder="款式（沒有分款式可留空）"
+                          style={{ flex: 1 }}
+                        />
+                        <input
+                          type="number"
+                          value={row.price}
+                          onChange={(e) => updateProductRow(i, "price", e.target.value)}
+                          placeholder="價格"
+                          style={{ width: 90 }}
+                        />
+                      </div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <input type="file" accept="image/*" onChange={(e) => handleProductRowImageUpload(i, e)} style={{ fontSize: 12 }} />
+                        <input
+                          type="text"
+                          value={productRowImageUrlInputs[i] || ""}
+                          onChange={(e) => setProductRowImageUrlInputs((prev) => ({ ...prev, [i]: e.target.value }))}
+                          placeholder="或貼上圖片網址"
+                          style={{ flex: 1, minWidth: 140, fontSize: 12 }}
+                        />
+                        <button className="btn small secondary" onClick={() => applyProductRowImageUrl(i)}>使用</button>
+                        {uploadingRowImg === i && <span style={{ fontSize: 12, color: "#8A8779" }}>上傳中…</span>}
+                      </div>
+                    </div>
+                    {i === productRows.length - 1 ? (
+                      <button className="btn small secondary" onClick={addProductRow} title="再新增一列款式" style={{ flexShrink: 0 }}>＋</button>
+                    ) : (
+                      <button className="btn small secondary" onClick={() => removeProductRow(i)} title="移除這一列" style={{ flexShrink: 0 }}>－</button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ fontSize: 12, color: "#8A8779" }}>填好幾列，按「新增商品」會一次建立好幾筆同名不同款式（各自圖片）的商品</div>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" onClick={saveProduct}>{productForm.id ? "儲存修改" : "新增商品"}</button>
-            {productForm.id && <button className="btn secondary" onClick={() => setProductForm(emptyProductForm)}>取消編輯</button>}
+            {productForm.id && <button className="btn secondary" onClick={() => { setProductForm(emptyProductForm); setProductRows([{ style: "", price: "0", imageUrl: "" }]); }}>取消編輯</button>}
             <button className="btn secondary" onClick={() => { setActivePlanForProducts(null); setActiveSection("plans"); }}>關閉商品管理</button>
           </div>
           <div style={{ fontSize: 13, marginTop: 6 }}>{productMsg}</div>
@@ -1720,7 +1867,7 @@ export default function AdminPage() {
                     帳號：{orderLookupResult.username}　交易方式：{orderLookupResult.payment}
                   </div>
                   <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>
-                    {new Date(orderLookupResult.createdAt).toLocaleString("zh-TW")}
+                    {new Date(orderLookupResult.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                   </div>
                   {orderLookupResult.items.map((it: any, idx: number) => (
                     <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0", borderBottom: "1px dashed #EDE9DC" }}>
@@ -1756,7 +1903,7 @@ export default function AdminPage() {
                     帳號：{r.username}　交易方式：{r.payment}　合計 NT$ {r.total}
                   </div>
                   <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>
-                    申請時間：{new Date(r.cancelRequestedAt).toLocaleString("zh-TW")}
+                    申請時間：{new Date(r.cancelRequestedAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button className="btn small danger" onClick={() => approveCancelRequest(r.orderNo)}>核准（刪除訂單）</button>
@@ -1971,7 +2118,7 @@ export default function AdminPage() {
             <div key={r.id} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{r.inputNickname}</div>
               {r.contactNote && <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>補充：{r.contactNote}</div>}
-              <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>{new Date(r.createdAt).toLocaleString("zh-TW")}</div>
+              <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>{new Date(r.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button className="btn small" onClick={() => resolveLegacyRequest(r.id, "resolve")}>標記已處理</button>
                 <button className="btn small secondary" onClick={() => resolveLegacyRequest(r.id, "reject")}>不予處理</button>
@@ -2007,7 +2154,7 @@ export default function AdminPage() {
               </div>
               <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0", wordBreak: "break-all" }}>{id.fbProfileUrl}</div>
               <div style={{ fontSize: 12, color: id.claimed ? "#27500A" : "#8A8779" }}>
-                {id.claimed ? `已被「${id.claimedByUsername || "未知帳號"}」認領（${new Date(id.claimedAt).toLocaleDateString("zh-TW")}）` : "尚未認領"}
+                {id.claimed ? `已被「${id.claimedByUsername || "未知帳號"}」認領（${new Date(id.claimedAt).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })}）` : "尚未認領"}
               </div>
             </div>
           ))}
@@ -2027,7 +2174,7 @@ export default function AdminPage() {
             <div key={o.orderNo} style={{ padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{o.planName}　<span style={{ fontWeight: 400, color: "#8A8779", fontSize: 12 }}>訂單編號 {o.orderNo}</span></div>
               <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>
-                原暱稱：{o.username}　交易方式：{o.payment}　合計 NT$ {o.total}　{new Date(o.createdAt).toLocaleDateString("zh-TW")}
+                原暱稱：{o.username}　交易方式：{o.payment}　合計 NT$ {o.total}　{new Date(o.createdAt).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })}
               </div>
               {o.items.map((it: any, idx: number) => (
                 <div key={idx} style={{ fontSize: 13, color: "#33415C" }}>・{it.name}{it.style ? `（${it.style}）` : ""} x{it.qty}</div>
@@ -2076,7 +2223,7 @@ export default function AdminPage() {
                   />
                   <span>
                     訂單 {o.orderNo}　帳號：{o.username}{o.legacyUnmatched ? "（未配對身份）" : ""}　{o.payment}　
-                    {new Date(o.createdAt).toLocaleString("zh-TW")}
+                    {new Date(o.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                     <br />
                     <span style={{ color: "#8A8779" }}>
                       {o.items.map((it: any, i: number) => `${it.name}${it.style ? `(${it.style})` : ""}x${it.qty}`).join("、")}
@@ -2139,7 +2286,7 @@ export default function AdminPage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <div style={{ minWidth: 0 }}>
                   {idx === 0 && <span style={{ fontSize: 11, background: "#FDF6EC", color: "#B08E5A", borderRadius: 999, padding: "2px 8px", marginRight: 6 }}>目前顯示中</span>}
-                  <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>{new Date(a.createdAt).toLocaleString("zh-TW")}</div>
+                  <div style={{ fontSize: 12, color: "#8A8779", margin: "4px 0" }}>{new Date(a.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</div>
                   <div style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{a.content}</div>
                 </div>
                 <button className="btn small danger" onClick={() => deleteAnnouncement(a.id)} style={{ flexShrink: 0 }}>刪除</button>

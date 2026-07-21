@@ -148,6 +148,17 @@ export function buildBoldRangeRequest(sheetId: number, startRow: number, endRow:
   };
 }
 
+/** 建構「某個範圍套數字格式」的請求（例如百分比 "0.0%"） */
+export function buildNumberFormatRequest(sheetId: number, startRow: number, endRow: number, startCol: number, endCol: number, pattern: string): BatchRequest {
+  return {
+    repeatCell: {
+      range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: startCol, endColumnIndex: endCol },
+      cell: { userEnteredFormat: { numberFormat: { type: "PERCENT", pattern } } },
+      fields: "userEnteredFormat.numberFormat",
+    },
+  };
+}
+
 /** 建構「顯示/隱藏分頁」的請求 */
 export function buildHideSheetRequest(sheetId: number, hidden: boolean): BatchRequest {
   return { updateSheetProperties: { properties: { sheetId, hidden }, fields: "hidden" } };

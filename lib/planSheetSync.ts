@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./supabase";
 import {
   getSheets, requireSheetId, requireCostSheetId,
   ensureSheetExistsCached, getValuesAndFormulas, batchGetValues, columnToLetter,
-  buildClearRequest, buildWriteRequest, buildBoldRangeRequest, buildHideSheetRequest,
+  buildClearRequest, buildWriteRequest, buildBoldRangeRequest, buildHideSheetRequest, buildNumberFormatRequest,
   runBatch, type BatchRequest, type SheetsClient, type SheetMetaCache,
 } from "./googleSheets";
 
@@ -75,7 +75,7 @@ async function buildOrderTabRequests(sheets: SheetsClient, mainSheetId: string, 
       orderRows.push([
         o.order_no, "", o.username, o.profile_url, it.product_name, it.style || "",
         it.qty, Number(it.unit_price) || 0, Number(it.subtotal) || 0,
-        new Date(o.created_at).toLocaleString("zh-TW"), o.payment, paidAmount > 0 ? paidAmount : "",
+        new Date(o.created_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }), o.payment, paidAmount > 0 ? paidAmount : "",
       ]);
     });
   });
@@ -193,7 +193,7 @@ async function buildCostTabRequests(
   oldValues: any[][],
   oldFormulas: any[][],
   cache: SheetMetaCache
-): Promise<BatchRequest[]> {
+): Promise<{ requests: BatchRequest[]; custStartRow: number; custCount: number }> {
   const sheetId = await ensureSheetExistsCached(sheets, costId, planTab, cache);
   const products = agg.products;
   const N = products.length;
@@ -274,35 +274,51 @@ async function buildCostTabRequests(
     data.push([c.display, feeF, subtotalF, `=B${row}+C${row}`, Number(c.paid) || 0, `=D${row}-E${row}`, ""]);
   });
 
-  return [
+  return {
+    requests: [
+      buildClearRequest(sheetId, 100000, 7),
+      buildWriteRequest(sheetId, 0, 0, data),
+      buildBoldRangeRequest(sheetId, 0, 1, 0, 7),
+      buildBoldRangeRequest(sheetId, N + 17, N + 19, 0, 7),
+      buildClearRequest(detailSheetId, 100000, 26),
+      buildWriteRequest(detailSheetId, 0, 0, ddata),
+      buildHideSheetRequest(detailSheetId, true),
+    ],
+    custStartRow,
+    custCount: customers.length,
+  };
+}
+
+function buildCostSummaryRequests(
+  sheetId: number,
+  rows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number; custStartRow: number; custCount: number }[]
+): BatchRequest[] {
+  const data: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤", "已收款金額", "未收款金額", "淨利潤率"]];
+  rows.forEach((r, i) => {
+    const row = i + 2;
+    const ref = `'${r.tab.replace(/'/g, "''")}'!`;
+    const custEndRow = r.custStartRow + r.custCount - 1;
+    const paidF = r.custCount > 0 ? `=SUM(${ref}E${r.custStartRow}:E${custEndRow})` : 0;
+    const owingF = r.custCount > 0 ? `=SUM(${ref}F${r.custStartRow}:F${custEndRow})` : 0;
+    const marginF = `=IF(B${row}=0,"",D${row}/B${row})`;
+    data.push([r.name, `=${ref}C${r.incomeRow}`, `=${ref}C${r.costRow}`, `=${ref}C${r.profitRow}`, paidF, owingF, marginF]);
+  });
+  const n = rows.length;
+  const requests: BatchRequest[] = [
     buildClearRequest(sheetId, 100000, 7),
     buildWriteRequest(sheetId, 0, 0, data),
     buildBoldRangeRequest(sheetId, 0, 1, 0, 7),
-    buildBoldRangeRequest(sheetId, N + 17, N + 19, 0, 7),
-    buildClearRequest(detailSheetId, 100000, 26),
-    buildWriteRequest(detailSheetId, 0, 0, ddata),
-    buildHideSheetRequest(detailSheetId, true),
+    buildNumberFormatRequest(sheetId, 1, n + 1, 6, 7, "0.0%"),
   ];
-}
-
-function buildCostSummaryRequests(sheetId: number, rows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number }[]): BatchRequest[] {
-  const data: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤"]];
-  rows.forEach((r) => {
-    const ref = `'${r.tab.replace(/'/g, "''")}'!C`;
-    data.push([r.name, `=${ref}${r.incomeRow}`, `=${ref}${r.costRow}`, `=${ref}${r.profitRow}`]);
-  });
-  const n = rows.length;
   if (n > 0) {
     const first = 2, last = 1 + n;
-    data.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`]);
+    const totalRow = n + 3; // 中間空一列，合計往下移一列
+    data.push(["", "", "", "", "", "", ""]); // 空白分隔列
+    data.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`, `=SUM(E${first}:E${last})`, `=SUM(F${first}:F${last})`, `=IF(B${totalRow}=0,"",D${totalRow}/B${totalRow})`]);
+    requests[1] = buildWriteRequest(sheetId, 0, 0, data); // 重新組含空白列+合計的完整內容
+    requests.push(buildBoldRangeRequest(sheetId, totalRow - 1, totalRow, 0, 7));
+    requests.push(buildNumberFormatRequest(sheetId, totalRow - 1, totalRow, 6, 7, "0.0%"));
   }
-
-  const requests: BatchRequest[] = [
-    buildClearRequest(sheetId, 100000, 4),
-    buildWriteRequest(sheetId, 0, 0, data),
-    buildBoldRangeRequest(sheetId, 0, 1, 0, 4),
-  ];
-  if (n > 0) requests.push(buildBoldRangeRequest(sheetId, n + 1, n + 2, 0, 4));
   return requests;
 }
 
@@ -316,33 +332,50 @@ export async function syncOnePlanCostTab(planId: string, planName: string) {
 
     const cache: SheetMetaCache = new Map();
     const { values: oldValues, formulas: oldFormulas } = await getValuesAndFormulas(sheets, costId, `${tabName}!A1:G100000`);
-    const costRequests = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
+    const { requests: costRequests, custStartRow, custCount } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
 
     const summarySheetId = await ensureSheetExistsCached(sheets, costId, "總覽", cache, 0);
-    const { values } = await getValuesAndFormulas(sheets, costId, `總覽!A1:D100000`);
+    const { values, formulas } = await getValuesAndFormulas(sheets, costId, `總覽!A1:G100000`);
     const N = agg.products.length;
     const incomeRow = N + 12, costRow = N + 13, profitRow = N + 15;
-    const ref = `'${tabName.replace(/'/g, "''")}'!C`;
-    const newRow: (string | number)[] = [planName, `=${ref}${incomeRow}`, `=${ref}${costRow}`, `=${ref}${profitRow}`];
-    let dataRows = values.slice(1);
-    const hasTotal = dataRows.length > 0 && String(dataRows[dataRows.length - 1]?.[0] || "").trim() === "合計";
-    if (hasTotal) dataRows = dataRows.slice(0, -1);
-    const idx = dataRows.findIndex((r) => String(r[0] || "").trim() === planName);
-    if (idx >= 0) dataRows[idx] = newRow;
-    else dataRows.push(newRow);
 
-    const finalData: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤"], ...dataRows];
+    // 其他企劃那幾列的內容照抄（要抄「公式」不是抄計算後的值，不然其他企劃的數字會被寫死、不再跟著資料庫變動）；
+    // 只有自己這一列要用剛剛算好的最新資料取代掉（找不到就加在最後面）
+    const otherRows = values
+      .slice(1)
+      .map((v, i) => {
+        const f = formulas[i + 1] || [];
+        return [0, 1, 2, 3, 4, 5, 6].map((ci) => (f[ci] ? f[ci] : v[ci] ?? ""));
+      })
+      .filter((r) => String(r[0] || "").trim() && String(r[0] || "").trim() !== "合計" && String(r[0] || "").trim() !== planName);
+
+    const ref = `'${tabName.replace(/'/g, "''")}'!`;
+    const custEndRow = custStartRow + custCount - 1;
+    const paidF = custCount > 0 ? `=SUM(${ref}E${custStartRow}:E${custEndRow})` : 0;
+    const owingF = custCount > 0 ? `=SUM(${ref}F${custStartRow}:F${custEndRow})` : 0;
+    const selfRowNo = otherRows.length + 2; // 自己這列固定排在最後一筆資料列
+    const selfRow: (string | number)[] = [
+      planName, `=${ref}C${incomeRow}`, `=${ref}C${costRow}`, `=${ref}C${profitRow}`, paidF, owingF,
+      `=IF(B${selfRowNo}=0,"",D${selfRowNo}/B${selfRowNo})`,
+    ];
+    const dataRows = [...otherRows, selfRow];
+
+    const finalData: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤", "已收款金額", "未收款金額", "淨利潤率"], ...dataRows];
     const n = dataRows.length;
+    const summaryRequests: BatchRequest[] = [
+      buildClearRequest(summarySheetId, 100000, 7),
+      buildBoldRangeRequest(summarySheetId, 0, 1, 0, 7),
+      buildNumberFormatRequest(summarySheetId, 1, n + 1, 6, 7, "0.0%"),
+    ];
     if (n > 0) {
       const first = 2, last = 1 + n;
-      finalData.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`]);
+      const totalRow = n + 3;
+      finalData.push(["", "", "", "", "", "", ""]);
+      finalData.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`, `=SUM(E${first}:E${last})`, `=SUM(F${first}:F${last})`, `=IF(B${totalRow}=0,"",D${totalRow}/B${totalRow})`]);
+      summaryRequests.push(buildBoldRangeRequest(summarySheetId, totalRow - 1, totalRow, 0, 7));
+      summaryRequests.push(buildNumberFormatRequest(summarySheetId, totalRow - 1, totalRow, 6, 7, "0.0%"));
     }
-    const summaryRequests: BatchRequest[] = [
-      buildClearRequest(summarySheetId, 100000, 4),
-      buildWriteRequest(summarySheetId, 0, 0, finalData),
-      buildBoldRangeRequest(summarySheetId, 0, 1, 0, 4),
-    ];
-    if (n > 0) summaryRequests.push(buildBoldRangeRequest(summarySheetId, n + 1, n + 2, 0, 4));
+    summaryRequests.splice(1, 0, buildWriteRequest(summarySheetId, 0, 0, finalData));
 
     await runBatch(sheets, costId, [...costRequests, ...summaryRequests]);
   });
@@ -376,7 +409,7 @@ export async function syncCostWorkbook() {
       ])
     : [{}, {}];
 
-  const summaryRows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number }[] = [];
+  const summaryRows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number; custStartRow: number; custCount: number }[] = [];
   const failedPlans: string[] = [];
   const allRequests: BatchRequest[] = [];
 
@@ -389,10 +422,10 @@ export async function syncCostWorkbook() {
 
       const oldValues = costValuesMap[`${tabName}!A1:G100000`] || [];
       const oldFormulas = costFormulasMap[`${tabName}!A1:G100000`] || [];
-      const requests = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
+      const { requests, custStartRow, custCount } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
       allRequests.push(...requests);
       const N = agg.products.length;
-      summaryRows.push({ name: p.name, tab: tabName, incomeRow: N + 12, costRow: N + 13, profitRow: N + 15 });
+      summaryRows.push({ name: p.name, tab: tabName, incomeRow: N + 12, costRow: N + 13, profitRow: N + 15, custStartRow, custCount });
     } catch (e: any) {
       failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
     }
