@@ -40,8 +40,10 @@ export async function syncMembersSheet() {
     m.email,
     m.email_verified ? "已驗證" : "未驗證",
     new Date(m.created_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }),
+    m.discord_username || "",
+    m.discord_user_id || "",
   ]);
-  await overwriteSheet("會員", ["帳號", "個人頁網址", "Email", "信箱驗證", "註冊時間"], rows);
+  await overwriteSheet("會員", ["帳號", "個人頁網址", "Email", "信箱驗證", "註冊時間", "DC帳號名稱", "DC使用者ID"], rows);
 }
 
 /** 企劃資料同上，整份重寫 */

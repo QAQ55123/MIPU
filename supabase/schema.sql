@@ -95,11 +95,14 @@ create table if not exists members (
   reset_token_expires   timestamptz,
   pending_profile_url      text,          -- 使用者申請修改個人頁網址，要等最高管理者審核通過才會生效
   pending_profile_url_norm text,
+  discord_username      text,          -- Discord 帳號名稱（喊單 Bot 綁定用）
+  discord_user_id       text,          -- Discord 使用者ID（喊單 Bot 綁定用）
   created_at            timestamptz default now()
 );
 create unique index if not exists idx_members_username on members (lower(username));
 create unique index if not exists idx_members_email on members (lower(email));
 create unique index if not exists idx_members_profile_url_norm on members (profile_url_norm);
+create index if not exists idx_members_discord_user_id on members (discord_user_id);
 
 -- 訂單（一張訂單一筆，品項另外存 order_items）
 create table if not exists orders (
