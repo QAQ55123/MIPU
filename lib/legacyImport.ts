@@ -46,6 +46,15 @@ function genOrderNo(): string {
   return String(Math.floor(100000000 + Math.random() * 900000000));
 }
 
+/** 保留舊資料原本的訂單編號，不足 9 碼的前面補 0（例如 123456 → 000123456）；
+ *  沒有原始編號、或不是純數字的話，才退回去隨機產生一個新的 */
+function padOrderNo(raw: string): string {
+  const s = norm(raw);
+  if (!s) return genOrderNo();
+  if (/^\d+$/.test(s)) return s.length < 9 ? s.padStart(9, "0") : s;
+  return s; // 不是純數字（例如自己編的英數混合代號），原樣保留，不硬套補0規則
+}
+
 function parseFlexibleDate(raw: any): Date {
   const s = norm(raw);
   if (!s) return new Date();
@@ -191,7 +200,7 @@ export async function importLegacyOrdersManual(rows: Record<string, any>[], comm
   const supabase = getSupabaseAdmin();
   const { resolve } = await buildIdentityIndex();
 
-  type Group = { groupKey: string; nickname: string; fbUrl: string; planName: string; payment: string; paidAmount: number; orderDate: Date; items: { name: string; style: string; qty: number; unitPrice: number }[] };
+  type Group = { groupKey: string; nickname: string; fbUrl: string; planName: string; payment: string; paidAmount: number; orderDate: Date; originalOrderNo: string; items: { name: string; style: string; qty: number; unitPrice: number }[] };
   const groups = new Map<string, Group>();
   const rowErrors: string[] = [];
 
@@ -208,6 +217,7 @@ export async function importLegacyOrdersManual(rows: Record<string, any>[], comm
     const payment = norm(r["交易方式"]);
     const paidAmount = Number(r["已收金額"] || 0);
     const orderDate = parseFlexibleDate(r["下單日期"]);
+    const originalOrderNo = norm(r["原始訂單編號"]); // 選填，舊系統原本的訂單編號，有填的話會保留（不足9碼補0）
 
     if (!groupKey && !nickname && !planName && !productName) return;
     if (!groupKey || !nickname || !planName || !productName || !qty) {
@@ -218,7 +228,7 @@ export async function importLegacyOrdersManual(rows: Record<string, any>[], comm
       rowErrors.push(`第 ${rowNo} 列：交易方式必須是「匯款」或「取付」，目前是「${payment || "(空白)"}」，已略過`);
       return;
     }
-    if (!groups.has(groupKey)) groups.set(groupKey, { groupKey, nickname, fbUrl, planName, payment, paidAmount, orderDate, items: [] });
+    if (!groups.has(groupKey)) groups.set(groupKey, { groupKey, nickname, fbUrl, planName, payment, paidAmount, orderDate, originalOrderNo, items: [] });
     groups.get(groupKey)!.items.push({ name: productName, style, qty, unitPrice });
   });
 
@@ -255,18 +265,20 @@ export async function importLegacyOrdersManual(rows: Record<string, any>[], comm
       const claimedMember = identity?.claimedMember;
       const targetUsername = claimedMember?.username || g.nickname;
       const profileUrl = claimedMember?.profile_url || g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
-      let order: any = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const { data, error } = await supabase.from("orders").insert({
-          order_no: genOrderNo(), plan_id: plan.id, plan_name_snapshot: g.planName,
-          username: targetUsername, profile_url: profileUrl, payment: g.payment, paid_amount: g.paidAmount,
-          created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
-          legacy_source_ref: sourceRef,
-        }).select().single();
-        if (!error) { order = data; break; }
-        if (!String(error.message).includes("duplicate")) throw new Error(error.message);
+      const paddedOrderNo = g.originalOrderNo ? padOrderNo(g.originalOrderNo) : genOrderNo();
+      const { data: order, error: orderErr } = await supabase.from("orders").insert({
+        order_no: paddedOrderNo, plan_id: plan.id, plan_name_snapshot: g.planName,
+        username: targetUsername, profile_url: profileUrl, payment: g.payment, paid_amount: g.paidAmount,
+        created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
+        legacy_source_ref: sourceRef,
+      }).select().single();
+      if (orderErr) {
+        throw new Error(
+          orderErr.message.includes("duplicate")
+            ? `訂單編號 ${paddedOrderNo} 跟現有訂單重複，需要手動處理`
+            : orderErr.message
+        );
       }
-      if (!order) throw new Error("建立訂單失敗（重試多次仍失敗）");
       const itemRows = g.items.map((it) => ({ order_id: order.id, product_name: it.name, style: it.style, qty: it.qty, unit_price: it.unitPrice, subtotal: it.qty * it.unitPrice }));
       const { error: itemsErr } = await supabase.from("order_items").insert(itemRows);
       if (itemsErr) throw new Error(itemsErr.message);
@@ -376,18 +388,20 @@ export async function importLegacySheetTab(sheetId: string, tabName: string, com
       const claimedMember = identity?.claimedMember;
       const profileUrl = claimedMember?.profile_url || g.fbUrl || identity?.fb_profile_url || "（尚未確認）";
       const usernamePlaceholder = claimedMember?.username || g.nickname || identity?.fb_nickname || identity?.line_nickname || identity?.discord_nickname || "（未知）";
-      let order: any = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const { data, error } = await supabase.from("orders").insert({
-          order_no: genOrderNo(), plan_id: plan.id, plan_name_snapshot: tabName,
-          username: usernamePlaceholder, profile_url: profileUrl, payment: g.payment, paid_amount: 0,
-          created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
-          legacy_source_ref: sourceRef,
-        }).select().single();
-        if (!error) { order = data; break; }
-        if (!String(error.message).includes("duplicate")) throw new Error(error.message);
+      const paddedOrderNo = padOrderNo(g.orderNo);
+      const { data: order, error: orderErr } = await supabase.from("orders").insert({
+        order_no: paddedOrderNo, plan_id: plan.id, plan_name_snapshot: tabName,
+        username: usernamePlaceholder, profile_url: profileUrl, payment: g.payment, paid_amount: 0,
+        created_at: g.orderDate.toISOString(), legacy_identity_id: identity ? identity.id : null, legacy_unmatched: !identity,
+        legacy_source_ref: sourceRef,
+      }).select().single();
+      if (orderErr) {
+        throw new Error(
+          orderErr.message.includes("duplicate")
+            ? `訂單編號 ${paddedOrderNo} 跟現有訂單重複（可能是不同企劃的舊訂單剛好編號一樣），需要手動處理`
+            : orderErr.message
+        );
       }
-      if (!order) throw new Error("建立訂單失敗（重試多次仍失敗）");
       const itemRows = g.items.map((it) => ({
         order_id: order.id, product_name: it.name, style: it.style, qty: it.qty, unit_price: it.unitPrice,
         subtotal: it.qty * it.unitPrice, image_url: catalogImageByKey.get(`${it.name}__${it.style}`) || null,
