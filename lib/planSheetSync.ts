@@ -279,7 +279,7 @@ async function buildCostTabRequests(
       buildClearRequest(sheetId, 100000, 7),
       buildWriteRequest(sheetId, 0, 0, data),
       buildBoldRangeRequest(sheetId, 0, 1, 0, 7),
-      buildBoldRangeRequest(sheetId, N + 17, N + 19, 0, 7),
+      buildBoldRangeRequest(sheetId, N + 16, N + 18, 0, 7),
       buildClearRequest(detailSheetId, 100000, 26),
       buildWriteRequest(detailSheetId, 0, 0, ddata),
       buildHideSheetRequest(detailSheetId, true),
@@ -340,12 +340,15 @@ export async function syncOnePlanCostTab(planId: string, planName: string) {
     const incomeRow = N + 12, costRow = N + 13, profitRow = N + 15;
 
     // 其他企劃那幾列的內容照抄（要抄「公式」不是抄計算後的值，不然其他企劃的數字會被寫死、不再跟著資料庫變動）；
-    // 只有自己這一列要用剛剛算好的最新資料取代掉（找不到就加在最後面）
+    // 只有自己這一列要用剛剛算好的最新資料取代掉（找不到就加在最後面）。
+    // 注意：B/C/D/E/F 欄的公式是參照「別的分頁」，複製過來不會受列位置影響，可以放心照抄；
+    // 但 G 欄（淨利潤率）是參照「自己這一列」的 B、D 欄，如果列的位置跟之前不一樣（例如企劃順序變動），
+    // 照抄舊公式會抓錯列，所以 G 欄一定要依最終實際的列位置重新產生，不能照抄。
     const otherRows = values
       .slice(1)
       .map((v, i) => {
         const f = formulas[i + 1] || [];
-        return [0, 1, 2, 3, 4, 5, 6].map((ci) => (f[ci] ? f[ci] : v[ci] ?? ""));
+        return [0, 1, 2, 3, 4, 5].map((ci) => (f[ci] ? f[ci] : v[ci] ?? ""));
       })
       .filter((r) => String(r[0] || "").trim() && String(r[0] || "").trim() !== "合計" && String(r[0] || "").trim() !== planName);
 
@@ -353,12 +356,13 @@ export async function syncOnePlanCostTab(planId: string, planName: string) {
     const custEndRow = custStartRow + custCount - 1;
     const paidF = custCount > 0 ? `=SUM(${ref}E${custStartRow}:E${custEndRow})` : 0;
     const owingF = custCount > 0 ? `=SUM(${ref}F${custStartRow}:F${custEndRow})` : 0;
-    const selfRowNo = otherRows.length + 2; // 自己這列固定排在最後一筆資料列
     const selfRow: (string | number)[] = [
       planName, `=${ref}C${incomeRow}`, `=${ref}C${costRow}`, `=${ref}C${profitRow}`, paidF, owingF,
-      `=IF(B${selfRowNo}=0,"",D${selfRowNo}/B${selfRowNo})`,
     ];
-    const dataRows = [...otherRows, selfRow];
+    const dataRows: (string | number)[][] = [...otherRows, selfRow].map((r, i) => {
+      const row = i + 2;
+      return [...r, `=IF(B${row}=0,"",D${row}/B${row})`];
+    });
 
     const finalData: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤", "已收款金額", "未收款金額", "淨利潤率"], ...dataRows];
     const n = dataRows.length;
