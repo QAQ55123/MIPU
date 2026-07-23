@@ -35,12 +35,25 @@ function parsePaidAmount(v: any): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-type PlanRow = { id: string; name: string };
+type PlanRow = { id: string; name: string; deadline?: string | null };
 
 async function getAllPlans(): Promise<PlanRow[]> {
   const supabase = getSupabaseAdmin();
-  const { data } = await supabase.from("plans").select("id, name").order("sort_order", { ascending: true });
-  return data || [];
+  const { data } = await supabase.from("plans").select("id, name, sort_order, deadline");
+  // 拖曳排序在後台是「同一個狀態分組（進行中／常駐／已截止）內」各自獨立排序的，
+  // 這裡的排序要比照後台畫面的分組邏輯，先分組、組內再依拖曳順序排，
+  // 不然兩個不同分組的企劃如果 sort_order 剛好一樣，順序會變得不可預期、跟後台實際看到的對不起來。
+  function statusRank(p: { deadline: string | null }) {
+    if (!p.deadline) return 1; // 常駐
+    return new Date(p.deadline).getTime() < Date.now() ? 2 : 0; // 已截止 : 進行中
+  }
+  const rows = (data || []) as any[];
+  rows.sort((a, b) => {
+    const r = statusRank(a) - statusRank(b);
+    if (r !== 0) return r;
+    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+  });
+  return rows;
 }
 
 async function getPlanProducts(planId: string) {

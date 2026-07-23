@@ -200,13 +200,29 @@ export async function ensureSheetExistsCached(
   if (existing != null) return existing;
   const props: any = { title: sheetName };
   if (insertAtIndex != null) props.index = insertAtIndex;
-  const res = await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests: [{ addSheet: { properties: props } }] },
-  });
-  const sheetId = res.data.replies?.[0]?.addSheet?.properties?.sheetId ?? 0;
-  map.set(sheetName, sheetId);
-  return sheetId;
+  try {
+    const res = await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: props } }] },
+    });
+    const sheetId = res.data.replies?.[0]?.addSheet?.properties?.sheetId ?? 0;
+    map.set(sheetName, sheetId);
+    return sheetId;
+  } catch (e: any) {
+    // 快取沒抓到、但實際上這個分頁已經存在（例如同名企劃、或快取剛好過期）：
+    // 不要直接把整個同步搞失敗，重新查一次「當下真實」的分頁清單，找到就沿用它
+    if (/already exists/i.test(String(e?.message || ""))) {
+      const fresh = await sheets.spreadsheets.get({ spreadsheetId });
+      const freshMap = new Map<string, number>();
+      for (const s of fresh.data.sheets || []) {
+        if (s.properties?.title != null && s.properties?.sheetId != null) freshMap.set(s.properties.title, s.properties.sheetId);
+      }
+      cache.set(spreadsheetId, freshMap);
+      const found = freshMap.get(sheetName);
+      if (found != null) return found;
+    }
+    throw e;
+  }
 }
 
 /** 一次讀取「同一份試算表裡」好幾個範圍的值（例如好幾個企劃各自的分頁），
