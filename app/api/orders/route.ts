@@ -62,9 +62,23 @@ export async function POST(req: Request) {
   if (payment === "取付") {
     const codLimit = Number(plan.cod_limit) || 0;
     if (codLimit <= 0) return NextResponse.json({ error: "此企劃不提供取付，請改用匯款。" }, { status: 400 });
-    if (orderTotal > codLimit) {
+
+    // 取付上限是「這個顧客在這個企劃的累計金額」，不是單筆訂單，要把他之前已經下過的取付訂單也算進去
+    const { data: priorOrders } = await supabase
+      .from("orders")
+      .select("order_items(subtotal)")
+      .eq("plan_id", planId)
+      .ilike("username", finalUsername)
+      .eq("payment", "取付");
+    const priorTotal = (priorOrders || []).reduce(
+      (sum, o: any) => sum + (o.order_items || []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0),
+      0
+    );
+
+    if (priorTotal + orderTotal > codLimit) {
+      const priorNote = priorTotal > 0 ? `（含你之前已經取付的 NT$ ${fmtMoney(priorTotal)}）` : "";
       return NextResponse.json(
-        { error: `取付金額 NT$ ${fmtMoney(orderTotal)} 超過取付上限 NT$ ${fmtMoney(codLimit)}，請改用匯款或減少數量。` },
+        { error: `取付金額 NT$ ${fmtMoney(priorTotal + orderTotal)} 超過取付上限 NT$ ${fmtMoney(codLimit)}${priorNote}，請改用匯款或減少數量。` },
         { status: 400 }
       );
     }

@@ -161,7 +161,7 @@ export default function Home() {
     } catch {}
   }, [globalCart]);
 
-  const [cartPlanStatus, setCartPlanStatus] = useState<Record<string, { name: string; deadline: string | null; closed: boolean; codLimit: number; allowCodOnRemitLink: boolean; found: boolean }>>({});
+  const [cartPlanStatus, setCartPlanStatus] = useState<Record<string, { name: string; deadline: string | null; closed: boolean; codLimit: number; priorCodTotal: number; allowCodOnRemitLink: boolean; found: boolean }>>({});
   const [cartPaymentByPlan, setCartPaymentByPlan] = useState<Record<string, string>>({});
   const [checkoutingPlanId, setCheckoutingPlanId] = useState<string | null>(null);
   const [selectedCartKeys, setSelectedCartKeys] = useState<Set<string>>(new Set());
@@ -729,10 +729,12 @@ export default function Home() {
 
   async function refreshCartPlanStatuses() {
     const planIds = Array.from(new Set(globalCart.map((e) => e.planId)));
+    const uname = identityRef.current?.username || "";
     const results = await Promise.all(
       planIds.map(async (id) => {
         try {
-          const r = await fetch(`/api/plans/${id}`, { cache: "no-store" });
+          const qs = uname ? `?username=${encodeURIComponent(uname)}` : "";
+          const r = await fetch(`/api/plans/${id}${qs}`, { cache: "no-store" });
           if (!r.ok) return [id, null] as const;
           const d = await r.json();
           return [id, d.plan] as const;
@@ -745,9 +747,9 @@ export default function Home() {
       const next = { ...prev };
       for (const [id, plan] of results) {
         if (plan) {
-          next[id] = { name: plan.name, deadline: plan.deadline, closed: plan.closed, codLimit: plan.codLimit || 0, allowCodOnRemitLink: !!plan.allowCodOnRemitLink, found: true };
+          next[id] = { name: plan.name, deadline: plan.deadline, closed: plan.closed, codLimit: plan.codLimit || 0, priorCodTotal: plan.priorCodTotal || 0, allowCodOnRemitLink: !!plan.allowCodOnRemitLink, found: true };
         } else {
-          next[id] = { name: "", deadline: null, closed: true, codLimit: 0, allowCodOnRemitLink: false, found: false };
+          next[id] = { name: "", deadline: null, closed: true, codLimit: 0, priorCodTotal: 0, allowCodOnRemitLink: false, found: false };
         }
       }
       return next;
@@ -2012,8 +2014,9 @@ export default function Home() {
                         const planName = live?.name || entries[0].planName;
                         const groupTotal = entries.reduce((s, e) => s + e.qty * e.price, 0);
                         const codLimit = live?.codLimit || 0;
+                        const priorCodTotal = live?.priorCodTotal || 0;
                         const codOffered = codLimit > 0 && (!remitOnlyMode || live?.allowCodOnRemitLink);
-                        const codOverLimit = codOffered && groupTotal > codLimit;
+                        const codOverLimit = codOffered && priorCodTotal + groupTotal > codLimit;
                         const codDisabled = !codOffered || codOverLimit;
                         const rawPayment = checkoutPaymentByPlan[planId] || "匯款";
                         const payment = (rawPayment === "取付" && codDisabled) ? "匯款" : rawPayment;
@@ -2049,7 +2052,7 @@ export default function Home() {
                                 </div>
                                 {codOverLimit && (
                                   <div style={{ color: "#B3261E", fontSize: 12, marginTop: 6 }}>
-                                    取付金額超過上限（NT$ {fmt(codLimit)}），請改用匯款或減少數量
+                                    取付金額超過上限（NT$ {fmt(codLimit)}）{priorCodTotal > 0 ? `，含你之前已取付的 NT$ ${fmt(priorCodTotal)}` : ""}，請改用匯款或減少數量
                                   </div>
                                 )}
                               </div>

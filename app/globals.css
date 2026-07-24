@@ -75,7 +75,7 @@ html, body {
 .plan-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; cursor: pointer; transition: .15s; }
 .plan-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.08); transform: translateY(-2px); }
 .plan-card h3 { margin: 0 0 8px; font-size: 16px; }
-.plan-img { width: 100%; height: 130px; object-fit: contain; border-radius: 8px; margin-bottom: 10px; background: #fafafa; border: 1px solid var(--line); }
+.plan-img { width: 100%; height: 130px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; background: #fafafa; border: 1px solid var(--line); }
 .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
 .tag.open { background: #dcfce7; color: #166534; }
 .tag.closed { background: #fee2e2; color: #991b1b; }
@@ -257,7 +257,7 @@ html, body {
   position: relative; height: 130px; background: #F2E9D8;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
-.plan-card-v2-img img { width: 100%; height: 100%; object-fit: contain; }
+.plan-card-v2-img img { width: 100%; height: 100%; object-fit: cover; }
 .plan-card-v2-tag {
   position: absolute; top: 8px; left: 8px; font-size: 10px; font-weight: 600;
   background: var(--tag-bg); color: var(--tag-text); padding: 3px 8px; border-radius: 5px;
