@@ -173,7 +173,7 @@ export default function Home() {
   const [historySearch, setHistorySearch] = useState("");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all"); // all | purchased | shipping | arrived | distributing
   const [historyCancelFilter, setHistoryCancelFilter] = useState<string>("all"); // all | normal | pending
-  const [remitOnlyMode, setRemitOnlyMode] = useState(false); // true＝透過 ?pay=remit 連結進來（記在這個瀏覽器），預設只能匯款；個別企劃如果有勾選「限定連結取付」，取付選項仍會保留
+  const [remitOnlyMode, setRemitOnlyMode] = useState(false); // true＝目前網址路徑是 /remit，固定只能匯款；個別企劃如果有勾選「限定連結取付」，取付選項仍會保留
   const [announcements, setAnnouncements] = useState<{ id: string; content: string; createdAt: string }[]>([]);
   const [announcementPanelOpen, setAnnouncementPanelOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -189,13 +189,10 @@ export default function Home() {
 
     const params = new URLSearchParams(window.location.search);
 
-    // ?pay=remit 進來的話，記住這個瀏覽器只能用匯款；?pay=all 可以取消這個限制
-    const payParam = params.get("pay");
-    try {
-      if (payParam === "remit") window.localStorage.setItem("mibu_remit_only", "1");
-      else if (payParam === "all") window.localStorage.removeItem("mibu_remit_only");
-      setRemitOnlyMode(window.localStorage.getItem("mibu_remit_only") === "1");
-    } catch {}
+    // 用網址路徑判斷是不是「限定匯款」模式：/remit 這個路徑進來的訪客固定只能匯款，
+    // 個別企劃如果有勾選「限定連結取付」，取付選項仍會保留；純粹依當下網址判斷，不會被瀏覽器記住、
+    // 也沒辦法被使用者自己解除，因為狀態只跟「現在在哪個路徑」有關
+    setRemitOnlyMode(window.location.pathname === "/remit" || window.location.pathname.startsWith("/remit/"));
 
     const verify = params.get("verify");
     if (verify === "success") setVerifyBannerMsg("信箱驗證成功！");
@@ -205,7 +202,7 @@ export default function Home() {
       setAuthTab("login");
       setView("identity");
     }
-    if (verify || openLogin || payParam) window.history.replaceState({}, "", window.location.pathname);
+    if (verify || openLogin) window.history.replaceState({}, "", window.location.pathname);
 
     // 先確認有沒有保持登入的 session（重新整理網頁不會登出），確認完才還原網址對應的畫面
     fetch("/api/auth/session", { cache: "no-store" })
