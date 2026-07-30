@@ -32,6 +32,7 @@ export async function POST(req: Request) {
   const planId = String(body.planId || "").trim();
   const subject = String(body.subject || "").trim();
   const bodyText = String(body.body || "").trim();
+  const shopLink = String(body.shopLink || "").trim();
   if (!planId) return NextResponse.json({ error: "缺少 planId" }, { status: 400 });
   if (!subject || !bodyText) return NextResponse.json({ error: "請填寫信件標題與內文" }, { status: 400 });
 
@@ -55,9 +56,14 @@ export async function POST(req: Request) {
 
   const finalSubject = subject.replace(/\{企劃名稱\}/g, plan.name);
   const finalBodyText = bodyText.replace(/\{企劃名稱\}/g, plan.name);
+  const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `<div style="font-family:sans-serif;font-size:15px;color:#2C2C2A;white-space:pre-wrap;">${finalBodyText
     .split("\n")
-    .map((line) => line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+    .map((line) => {
+      const escaped = escapeHtml(line);
+      // 內文裡的「賣場」兩字，如果有填賣場連結，就自動變成超連結
+      return shopLink ? escaped.split("賣場").join(`<a href="${escapeHtml(shopLink)}" target="_blank" rel="noopener">賣場</a>`) : escaped;
+    })
     .join("<br/>")}</div>`;
 
   let sent = 0;

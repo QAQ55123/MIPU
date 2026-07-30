@@ -56,6 +56,7 @@ export default function AdminPage() {
   const [notifyPlan, setNotifyPlan] = useState<PlanAdmin | null>(null);
   const [notifySubject, setNotifySubject] = useState("");
   const [notifyBody, setNotifyBody] = useState("");
+  const [notifyShopLink, setNotifyShopLink] = useState("");
   const [notifyRecipientInfo, setNotifyRecipientInfo] = useState<{ emailCount: number; orderUsernameCount: number } | null>(null);
   const [notifyLoadingRecipients, setNotifyLoadingRecipients] = useState(false);
   const [notifySending, setNotifySending] = useState(false);
@@ -538,8 +539,9 @@ export default function AdminPage() {
 
   async function openNotifyPanel(p: PlanAdmin) {
     setNotifyPlan(p);
-    setNotifySubject(`【米舖】您訂購的「${p.name}」已到貨開賣！`);
-    setNotifyBody(`親愛的顧客您好：\n\n您在「{企劃名稱}」訂購的商品已經到貨、開放賣場囉！\n請前往網站確認您的訂單內容，並依照您選擇的交易方式完成取貨或付款。\n\n謝謝您的訂購！`);
+    setNotifySubject(`【米舖】您訂購的「${p.name}」已開立賣場！`);
+    setNotifyBody(`親愛的顧客您好：\n您在「{企劃名稱}」訂購的商品已經到貨、開放賣場囉！\n請前往賣場下單，謝謝。\n謝謝您的訂購！`);
+    setNotifyShopLink("");
     setNotifyResult(null);
     setNotifyRecipientInfo(null);
     setNotifyLoadingRecipients(true);
@@ -563,6 +565,7 @@ export default function AdminPage() {
         planId: notifyPlan.id,
         subject: notifySubject.trim(),
         body: notifyBody.trim(),
+        shopLink: notifyShopLink.trim(),
       });
       setNotifyResult(d);
     } catch (e: any) {
@@ -1706,13 +1709,13 @@ export default function AdminPage() {
                     onDragStart={() => setDraggedPlanId(p.id)}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={() => handlePlanDrop(p.id)}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px dashed #EDE9DC", cursor: "grab", opacity: draggedPlanId === p.id ? 0.4 : 1 }}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", rowGap: 8, padding: "10px 0", borderBottom: "1px dashed #EDE9DC", cursor: "grab", opacity: draggedPlanId === p.id ? 0.4 : 1 }}
                   >
                     <div>
                       <div style={{ fontSize: 14 }}><span style={{ color: "#B0AC9C", marginRight: 6 }} title="拖曳排序">⠿</span>{p.name}</div>
                       <div style={{ fontSize: 12, color: "#8A8779" }}>{p.categoryName || "未分類"}{p.deadline ? `　截止 ${new Date(p.deadline).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}` : ""}</div>
                     </div>
-                    <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <span style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <button className="btn small secondary" onClick={() => openProductManager(p)}>管理商品</button>
                       <button className="btn small secondary" onClick={() => editPlan(p)}>編輯</button>
                       {currentRole === "owner" && (
@@ -1813,7 +1816,7 @@ export default function AdminPage() {
                     e.target.value = "";
                   }}
                 >
-                  <option value="">選一個商品，把它的款式清單複製過來（金額也會一起帶入，可以再自行調整）</option>
+                  <option value="">選一個商品複製款式（記得修改金額）</option>
                   {Array.from(new Set(products.map((p) => p.name))).map((name) => (
                     <option key={name} value={name}>{name}</option>
                   ))}
@@ -2008,7 +2011,7 @@ export default function AdminPage() {
                         const uniqueNames = Array.from(new Set(orderPlanProducts.map((p) => p.name)));
                         const stylesForName = orderPlanProducts.filter((p) => p.name === row.name);
                         return (
-                          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                          <div key={i} className="id-row" style={{ marginBottom: 8, flexWrap: "nowrap" }}>
                             <select
                               value={row.name}
                               onChange={(e) => {
@@ -2016,7 +2019,7 @@ export default function AdminPage() {
                                 const firstStyle = orderPlanProducts.find((p) => p.name === newName)?.style || "";
                                 setEditItemRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, name: newName, style: firstStyle } : r)));
                               }}
-                              style={{ flex: 1 }}
+                              style={{ flex: 2, minWidth: 0 }}
                             >
                               {uniqueNames.length === 0 && <option value={row.name}>{row.name}（企劃商品目錄找不到，請改選）</option>}
                               {uniqueNames.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -2024,7 +2027,7 @@ export default function AdminPage() {
                             <select
                               value={row.style}
                               onChange={(e) => updateEditItemRow(i, "style", e.target.value)}
-                              style={{ width: 140 }}
+                              style={{ flex: 1, minWidth: 0 }}
                             >
                               {stylesForName.length === 0 && <option value={row.style}>{row.style || "（無款式）"}</option>}
                               {stylesForName.map((p) => <option key={p.id} value={p.style || ""}>{p.style || "（無款式）"}</option>)}
@@ -2034,9 +2037,9 @@ export default function AdminPage() {
                               min={1}
                               value={row.qty}
                               onChange={(e) => updateEditItemRow(i, "qty", e.target.value)}
-                              style={{ width: 70 }}
+                              style={{ flex: "0 0 70px", minWidth: 70 }}
                             />
-                            <button className="btn small secondary" onClick={() => removeEditItemRow(i)} disabled={editItemRows.length <= 1}>刪除</button>
+                            <button className="btn small secondary" onClick={() => removeEditItemRow(i)} disabled={editItemRows.length <= 1} style={{ flexShrink: 0 }}>刪除</button>
                           </div>
                         );
                       })}
@@ -2476,7 +2479,7 @@ export default function AdminPage() {
             <h3>發送到貨通知信：{notifyPlan.name}</h3>
             <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
               會寄給這個企劃底下所有訂單的顧客（不管取付/匯款，取消審核中的也算，只要訂單還存在資料庫裡）。
-              內文可以用 <code>{"{企劃名稱}"}</code> 這個佔位符，會自動換成企劃名稱。
+              內文可以用 <code>{"{企劃名稱}"}</code> 這個佔位符，會自動換成企劃名稱；如果有填「賣場連結」，內文裡所有「賣場」兩字都會自動變成可以點擊的連結。
             </p>
             <div style={{ fontSize: 13, margin: "8px 0", color: "#33415C" }}>
               {notifyLoadingRecipients
@@ -2488,6 +2491,10 @@ export default function AdminPage() {
             <div className="id-row">
               <span className="id-label">標題</span>
               <input type="text" value={notifySubject} onChange={(e) => setNotifySubject(e.target.value)} style={{ flex: 1 }} />
+            </div>
+            <div className="id-row">
+              <span className="id-label">賣場連結</span>
+              <input type="text" value={notifyShopLink} onChange={(e) => setNotifyShopLink(e.target.value)} placeholder="貼上賣場網址，內文裡的「賣場」兩字會自動變成這個連結" style={{ flex: 1 }} />
             </div>
             <textarea
               value={notifyBody}
