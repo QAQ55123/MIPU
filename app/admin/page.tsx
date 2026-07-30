@@ -51,6 +51,15 @@ export default function AdminPage() {
   const [plans, setPlans] = useState<PlanAdmin[]>([]);
   const [planForm, setPlanForm] = useState(emptyPlanForm);
   const [planMsg, setPlanMsg] = useState("");
+
+  // 到貨通知信
+  const [notifyPlan, setNotifyPlan] = useState<PlanAdmin | null>(null);
+  const [notifySubject, setNotifySubject] = useState("");
+  const [notifyBody, setNotifyBody] = useState("");
+  const [notifyRecipientInfo, setNotifyRecipientInfo] = useState<{ emailCount: number; orderUsernameCount: number } | null>(null);
+  const [notifyLoadingRecipients, setNotifyLoadingRecipients] = useState(false);
+  const [notifySending, setNotifySending] = useState(false);
+  const [notifyResult, setNotifyResult] = useState<any>(null);
   const [uploadingPlanImg, setUploadingPlanImg] = useState(false);
   const [uploadingPromoImg, setUploadingPromoImg] = useState(false);
 
@@ -81,6 +90,10 @@ export default function AdminPage() {
   const [orderPaidAmountInput, setOrderPaidAmountInput] = useState("");
   const [savingPaidAmount, setSavingPaidAmount] = useState(false);
   const [orderLookupMsg, setOrderLookupMsg] = useState("");
+  const [orderPlanProducts, setOrderPlanProducts] = useState<ProductAdmin[]>([]);
+  const [editingOrderItems, setEditingOrderItems] = useState(false);
+  const [editItemRows, setEditItemRows] = useState<{ name: string; style: string; qty: string }[]>([]);
+  const [savingOrderItems, setSavingOrderItems] = useState(false);
   const [cancelRequests, setCancelRequests] = useState<any[]>([]);
 
   // 舊會員確認
@@ -523,6 +536,42 @@ export default function AdminPage() {
     }
   }
 
+  async function openNotifyPanel(p: PlanAdmin) {
+    setNotifyPlan(p);
+    setNotifySubject(`【米舖】您訂購的「${p.name}」已到貨開賣！`);
+    setNotifyBody(`親愛的顧客您好：\n\n您在「{企劃名稱}」訂購的商品已經到貨、開放賣場囉！\n請前往網站確認您的訂單內容，並依照您選擇的交易方式完成取貨或付款。\n\n謝謝您的訂購！`);
+    setNotifyResult(null);
+    setNotifyRecipientInfo(null);
+    setNotifyLoadingRecipients(true);
+    try {
+      const r = await fetch(`/api/admin/plans/notify-recipients?planId=${p.id}`, { cache: "no-store" });
+      const d = await r.json();
+      if (r.ok) setNotifyRecipientInfo({ emailCount: d.emailCount, orderUsernameCount: d.orderUsernameCount });
+    } catch {}
+    setNotifyLoadingRecipients(false);
+  }
+
+  async function sendNotifyEmail() {
+    if (!notifyPlan) return;
+    if (!notifySubject.trim() || !notifyBody.trim()) { setNotifyResult({ error: "請填寫信件標題與內文" }); return; }
+    const count = notifyRecipientInfo?.emailCount ?? 0;
+    if (!confirm(`確定要寄送這封信給 ${count} 位顧客的信箱嗎？送出後無法收回。`)) return;
+    setNotifySending(true);
+    setNotifyResult(null);
+    try {
+      const d = await callJson("/api/admin/plans/notify", "POST", {
+        planId: notifyPlan.id,
+        subject: notifySubject.trim(),
+        body: notifyBody.trim(),
+      });
+      setNotifyResult(d);
+    } catch (e: any) {
+      setNotifyResult({ error: e.message });
+    } finally {
+      setNotifySending(false);
+    }
+  }
+
   async function handlePlanImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -810,6 +859,8 @@ export default function AdminPage() {
   async function lookupOrder() {
     setOrderLookupMsg("");
     setOrderLookupResult(null);
+    setEditingOrderItems(false);
+    setOrderPlanProducts([]);
     if (!orderLookupNo.trim()) return setOrderLookupMsg("請輸入訂單編號");
     try {
       const r = await fetch(`/api/admin/orders?orderNo=${encodeURIComponent(orderLookupNo.trim())}`, { cache: "no-store" });
@@ -818,8 +869,46 @@ export default function AdminPage() {
       if (!r.ok) return setOrderLookupMsg(d.error || "查詢失敗");
       setOrderLookupResult(d.order);
       setOrderPaidAmountInput(String(d.order.paidAmount || 0));
+      setEditItemRows((d.order.items || []).map((it: any) => ({ name: it.name, style: it.style || "", qty: String(it.qty) })));
+      if (d.order.planId) {
+        try {
+          const pr = await fetch(`/api/admin/products?planId=${d.order.planId}`, { cache: "no-store" });
+          const pd = await pr.json();
+          if (pr.ok) setOrderPlanProducts(pd.products || []);
+        } catch {}
+      }
     } catch {
       setOrderLookupMsg("網路連線失敗");
+    }
+  }
+
+  function updateEditItemRow(idx: number, field: "name" | "style" | "qty", value: string) {
+    setEditItemRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+  function removeEditItemRow(idx: number) {
+    setEditItemRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
+  }
+  function addEditItemRow() {
+    const first = orderPlanProducts[0];
+    setEditItemRows((rows) => [...rows, { name: first?.name || "", style: first?.style || "", qty: "1" }]);
+  }
+
+  async function saveOrderItems() {
+    if (!orderLookupResult) return;
+    const items = editItemRows
+      .map((r) => ({ name: r.name.trim(), style: r.style.trim(), qty: Number(r.qty) }))
+      .filter((r) => r.name);
+    if (items.length === 0) return setOrderLookupMsg("至少要有一項商品");
+    setSavingOrderItems(true);
+    try {
+      const d = await callJson("/api/admin/orders/items", "PATCH", { orderNo: orderLookupResult.orderNo, items });
+      setOrderLookupMsg(d.syncWarning || "商品內容已更新，也已同步到 Google Sheet。");
+      setEditingOrderItems(false);
+      await lookupOrder();
+    } catch (e: any) {
+      setOrderLookupMsg("失敗：" + e.message);
+    } finally {
+      setSavingOrderItems(false);
     }
   }
 
@@ -1626,6 +1715,9 @@ export default function AdminPage() {
                     <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       <button className="btn small secondary" onClick={() => openProductManager(p)}>管理商品</button>
                       <button className="btn small secondary" onClick={() => editPlan(p)}>編輯</button>
+                      {currentRole === "owner" && (
+                        <button className="btn small secondary" onClick={() => openNotifyPanel(p)}>發送到貨通知信</button>
+                      )}
                       <button className="btn small danger" onClick={() => deletePlan(p.id)}>刪除</button>
                       {currentRole === "owner" && (
                         <button className="btn small danger" onClick={() => purgePlan(p.id, p.name)} title="連訂單一起永久刪除，成本試算表資料會保留">徹底刪除（含訂單）</button>
@@ -1688,24 +1780,46 @@ export default function AdminPage() {
             <input type="text" value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：原味米菓" />
           </div>
           {!productForm.id && Array.from(new Set(products.map((p) => p.name))).length > 0 && (
-            <div className="id-row">
-              <span className="id-label">快速選擇</span>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {Array.from(new Set(products.map((p) => p.name))).map((name) => (
-                  <span
-                    key={name}
-                    onClick={() => setProductForm((f) => ({ ...f, name }))}
-                    style={{
-                      fontSize: 12, padding: "4px 10px", borderRadius: 999, cursor: "pointer",
-                      background: productForm.name === name ? "#33415C" : "#F1EFE8",
-                      color: productForm.name === name ? "#fff" : "#5F5E5A",
-                    }}
-                  >
-                    {name}
-                  </span>
-                ))}
+            <>
+              <div className="id-row">
+                <span className="id-label">快速選擇</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {Array.from(new Set(products.map((p) => p.name))).map((name) => (
+                    <span
+                      key={name}
+                      onClick={() => setProductForm((f) => ({ ...f, name }))}
+                      style={{
+                        fontSize: 12, padding: "4px 10px", borderRadius: 999, cursor: "pointer",
+                        background: productForm.name === name ? "#33415C" : "#F1EFE8",
+                        color: productForm.name === name ? "#fff" : "#5F5E5A",
+                      }}
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
+              <div className="id-row">
+                <span className="id-label">複製款式</span>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    const sourceName = e.target.value;
+                    if (!sourceName) return;
+                    const rows = products
+                      .filter((p) => p.name === sourceName)
+                      .map((p) => ({ style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "" }));
+                    if (rows.length > 0) setProductRows(rows);
+                    e.target.value = "";
+                  }}
+                >
+                  <option value="">選一個商品，把它的款式清單複製過來（金額也會一起帶入，可以再自行調整）</option>
+                  {Array.from(new Set(products.map((p) => p.name))).map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            </>
           )}
 
           {productForm.id ? (
@@ -1869,13 +1983,70 @@ export default function AdminPage() {
                   <div style={{ fontSize: 12, color: "#8A8779", marginBottom: 8 }}>
                     {new Date(orderLookupResult.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
                   </div>
-                  {orderLookupResult.items.map((it: any, idx: number) => (
-                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0", borderBottom: "1px dashed #EDE9DC" }}>
-                      <span>{it.name}{it.style ? `（${it.style}）` : ""} x{it.qty}</span>
-                      <span>NT$ {it.subtotal}</span>
+                  {!editingOrderItems ? (
+                    <>
+                      {orderLookupResult.items.map((it: any, idx: number) => (
+                        <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0", borderBottom: "1px dashed #EDE9DC" }}>
+                          <span>{it.name}{it.style ? `（${it.style}）` : ""} x{it.qty}</span>
+                          <span>NT$ {it.subtotal}</span>
+                        </div>
+                      ))}
+                      <div style={{ textAlign: "right", fontWeight: 600, marginTop: 8 }}>合計 NT$ {orderLookupResult.total}</div>
+                      {currentRole === "owner" && orderLookupResult.planId && (
+                        <button className="btn small secondary" onClick={() => setEditingOrderItems(true)} style={{ marginTop: 8 }}>編輯商品／款式</button>
+                      )}
+                      {currentRole === "owner" && !orderLookupResult.planId && (
+                        <div style={{ fontSize: 12, color: "#8A8779", marginTop: 8 }}>這張訂單沒有對應的企劃了，沒辦法編輯商品內容（企劃可能已被刪除）。</div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ marginTop: 4 }}>
+                      <p style={{ fontSize: 12, color: "#8A8779", margin: "0 0 8px" }}>
+                        每一列選一個商品／款式跟數量，價格會用企劃目前的商品目錄重新計算（不是沿用舊價格）。
+                      </p>
+                      {editItemRows.map((row, i) => {
+                        const uniqueNames = Array.from(new Set(orderPlanProducts.map((p) => p.name)));
+                        const stylesForName = orderPlanProducts.filter((p) => p.name === row.name);
+                        return (
+                          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                            <select
+                              value={row.name}
+                              onChange={(e) => {
+                                const newName = e.target.value;
+                                const firstStyle = orderPlanProducts.find((p) => p.name === newName)?.style || "";
+                                setEditItemRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, name: newName, style: firstStyle } : r)));
+                              }}
+                              style={{ flex: 1 }}
+                            >
+                              {uniqueNames.length === 0 && <option value={row.name}>{row.name}（企劃商品目錄找不到，請改選）</option>}
+                              {uniqueNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                            </select>
+                            <select
+                              value={row.style}
+                              onChange={(e) => updateEditItemRow(i, "style", e.target.value)}
+                              style={{ width: 140 }}
+                            >
+                              {stylesForName.length === 0 && <option value={row.style}>{row.style || "（無款式）"}</option>}
+                              {stylesForName.map((p) => <option key={p.id} value={p.style || ""}>{p.style || "（無款式）"}</option>)}
+                            </select>
+                            <input
+                              type="number"
+                              min={1}
+                              value={row.qty}
+                              onChange={(e) => updateEditItemRow(i, "qty", e.target.value)}
+                              style={{ width: 70 }}
+                            />
+                            <button className="btn small secondary" onClick={() => removeEditItemRow(i)} disabled={editItemRows.length <= 1}>刪除</button>
+                          </div>
+                        );
+                      })}
+                      <button className="btn small secondary" onClick={addEditItemRow} style={{ marginBottom: 10 }}>＋ 新增一項商品</button>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn small" onClick={saveOrderItems} disabled={savingOrderItems}>{savingOrderItems ? "儲存中…" : "儲存修改"}</button>
+                        <button className="btn small secondary" onClick={() => { setEditingOrderItems(false); setEditItemRows(orderLookupResult.items.map((it: any) => ({ name: it.name, style: it.style || "", qty: String(it.qty) }))); }}>取消</button>
+                      </div>
                     </div>
-                  ))}
-                  <div style={{ textAlign: "right", fontWeight: 600, marginTop: 8 }}>合計 NT$ {orderLookupResult.total}</div>
+                  )}
 
                   <div className="id-row" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #EDE9DC" }}>
                     <span className="id-label">已收金額</span>
@@ -2298,6 +2469,50 @@ export default function AdminPage() {
           )}
         </main>
       </div>
+
+      {notifyPlan && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }} onClick={() => setNotifyPlan(null)}>
+          <div className="auth-card" style={{ maxWidth: 480, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <h3>發送到貨通知信：{notifyPlan.name}</h3>
+            <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+              會寄給這個企劃底下所有訂單的顧客（不管取付/匯款，取消審核中的也算，只要訂單還存在資料庫裡）。
+              內文可以用 <code>{"{企劃名稱}"}</code> 這個佔位符，會自動換成企劃名稱。
+            </p>
+            <div style={{ fontSize: 13, margin: "8px 0", color: "#33415C" }}>
+              {notifyLoadingRecipients
+                ? "正在計算收件人數量…"
+                : notifyRecipientInfo
+                ? `這次會寄給 ${notifyRecipientInfo.emailCount} 個信箱（共 ${notifyRecipientInfo.orderUsernameCount} 個下單帳號）`
+                : ""}
+            </div>
+            <div className="id-row">
+              <span className="id-label">標題</span>
+              <input type="text" value={notifySubject} onChange={(e) => setNotifySubject(e.target.value)} style={{ flex: 1 }} />
+            </div>
+            <textarea
+              value={notifyBody}
+              onChange={(e) => setNotifyBody(e.target.value)}
+              rows={8}
+              style={{ width: "100%", marginTop: 8, padding: 8, border: "1px solid #EDE9DC", borderRadius: 8, fontFamily: "inherit", fontSize: 14, resize: "vertical" }}
+            />
+            <div style={{ fontSize: 13, margin: "8px 0" }}>
+              {notifyResult?.error && <span style={{ color: "#B3261E" }}>失敗：{notifyResult.error}</span>}
+              {notifyResult && !notifyResult.error && (
+                <span>
+                  已寄出 {notifyResult.sent} 封
+                  {notifyResult.failed?.length > 0 && `，${notifyResult.failed.length} 封失敗：${notifyResult.failed.join("；")}`}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn" onClick={sendNotifyEmail} disabled={notifySending || notifyLoadingRecipients}>
+                {notifySending ? "寄送中…" : "確認發送"}
+              </button>
+              <button className="btn secondary" onClick={() => setNotifyPlan(null)}>關閉</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -35,6 +35,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     order: {
       orderNo: order.order_no,
+      planId: order.plan_id,
       username: order.username,
       profileUrl: order.profile_url,
       planName: order.plan_name_snapshot || order.plans?.name || "（企劃已刪除）",
