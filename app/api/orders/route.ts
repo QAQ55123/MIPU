@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { genOrderNo, fmtMoney } from "@/lib/util";
 import { notifyDiscord } from "@/lib/discord";
 import { syncOrderToSheet } from "@/lib/sheetsSync";
+import { getStockUsage, stockKey } from "@/lib/stock";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -58,6 +59,25 @@ export async function POST(req: Request) {
     rows.push({ name: it.name, style, qty, unit, subtotal, imageUrl: imageMap[`${it.name}||${style}`] ?? null });
   }
   if (rows.length === 0) return NextResponse.json({ error: "請至少選擇一項商品的數量" }, { status: 400 });
+
+  // 限量商品要檢查庫存夠不夠（伺服器端重新算一次，避免前端顯示的剩餘數量被繞過）
+  const limitedProducts = (products || []).filter((p) => p.stock_limit != null);
+  if (limitedProducts.length > 0) {
+    const usage = await getStockUsage(planId);
+    for (const r of rows) {
+      const product = limitedProducts.find((p) => p.name === r.name && (p.style || "") === r.style);
+      if (!product) continue;
+      const limit = Number(product.stock_limit);
+      const sold = usage.get(stockKey(r.name, r.style)) || 0;
+      const remaining = Math.max(0, limit - sold);
+      if (r.qty > remaining) {
+        return NextResponse.json(
+          { error: `「${r.name}${r.style ? `（${r.style}）` : ""}」庫存只剩 ${remaining} 件，請減少數量。` },
+          { status: 400 }
+        );
+      }
+    }
+  }
 
   if (payment === "取付") {
     const codLimit = Number(plan.cod_limit) || 0;

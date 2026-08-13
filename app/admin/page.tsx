@@ -9,11 +9,11 @@ type PlanAdmin = {
   promoImages?: string[]; sortOrder?: number;
   hideAfterDays?: number | null; fulfillmentStatus?: string | null;
 };
-type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null };
+type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null; stockLimit: number | null };
 
 const emptyCategoryForm = { id: "", name: "", parentId: "" };
 const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", allowCodOnRemitLink: false, visibleTo: [] as string[], categoryId: "", promoImages: [] as string[], hideAfterDays: "", fulfillmentStatus: "" };
-const emptyProductForm = { id: "", name: "", style: "", price: "0", imageUrl: "" };
+const emptyProductForm = { id: "", name: "", style: "", price: "0", imageUrl: "", stockLimit: "" };
 
 export default function AdminPage() {
   const [username, setUsername] = useState("");
@@ -68,7 +68,7 @@ export default function AdminPage() {
   const [activePlanForProducts, setActivePlanForProducts] = useState<PlanAdmin | null>(null);
   const [products, setProducts] = useState<ProductAdmin[]>([]);
   const [productForm, setProductForm] = useState(emptyProductForm);
-  const [productRows, setProductRows] = useState<{ style: string; price: string; imageUrl: string }[]>([{ style: "", price: "0", imageUrl: "" }]);
+  const [productRows, setProductRows] = useState<{ style: string; price: string; imageUrl: string; stockLimit: string }[]>([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]);
   const [uploadingRowImg, setUploadingRowImg] = useState<number | null>(null);
   const [productRowImageUrlInputs, setProductRowImageUrlInputs] = useState<Record<number, string>>({});
   const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
@@ -644,17 +644,17 @@ export default function AdminPage() {
   async function openProductManager(p: PlanAdmin) {
     setActivePlanForProducts(p);
     setProductForm(emptyProductForm);
-    setProductRows([{ style: "", price: "0", imageUrl: "" }]);
+    setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]);
     setActiveSection("products");
     await loadProducts(p.id);
   }
 
   function editProduct(p: ProductAdmin) {
-    setProductForm({ id: p.id, name: p.name, style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "" });
+    setProductForm({ id: p.id, name: p.name, style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "", stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" });
   }
 
   function addProductRow() {
-    setProductRows((rows) => [...rows, { style: "", price: rows[rows.length - 1]?.price || "0", imageUrl: "" }]);
+    setProductRows((rows) => [...rows, { style: "", price: rows[rows.length - 1]?.price || "0", imageUrl: "", stockLimit: "" }]);
   }
   function removeProductRow(idx: number) {
     setProductRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
@@ -664,7 +664,7 @@ export default function AdminPage() {
       return next;
     });
   }
-  function updateProductRow(idx: number, field: "style" | "price" | "imageUrl", value: string) {
+  function updateProductRow(idx: number, field: "style" | "price" | "imageUrl" | "stockLimit", value: string) {
     setProductRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   }
 
@@ -703,6 +703,7 @@ export default function AdminPage() {
           style: productForm.style,
           price: productForm.price,
           imageUrl: productForm.imageUrl || null,
+          stockLimit: productForm.stockLimit,
         });
         setProductForm(emptyProductForm);
         setProductMsg("已儲存");
@@ -716,11 +717,12 @@ export default function AdminPage() {
             style: row.style,
             price: row.price || "0",
             imageUrl: row.imageUrl || null,
+            stockLimit: row.stockLimit,
           });
         }
         // 商品名稱保留，方便接著建下一批款式；款式列表清空回一列
         setProductForm((f) => ({ ...f, style: "", price: "0" }));
-        setProductRows([{ style: "", price: "0", imageUrl: "" }]);
+        setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]);
         setProductMsg(`已新增 ${rows.length} 筆`);
       }
       await loadProducts(activePlanForProducts.id);
@@ -1764,7 +1766,7 @@ export default function AdminPage() {
                       {p.imageUrl && <img src={p.imageUrl} alt={p.name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />}
                       <div>
                         <div style={{ fontSize: 14 }}>{p.style || "單一款式"}</div>
-                        <div style={{ fontSize: 12, color: "#8A8779" }}>NT$ {p.price}</div>
+                        <div style={{ fontSize: 12, color: "#8A8779" }}>NT$ {p.price}{p.stockLimit != null ? `　限量 ${p.stockLimit}` : ""}</div>
                       </div>
                     </div>
                     <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -1811,7 +1813,7 @@ export default function AdminPage() {
                     if (!sourceName) return;
                     const rows = products
                       .filter((p) => p.name === sourceName)
-                      .map((p) => ({ style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "" }));
+                      .map((p) => ({ style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "", stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" }));
                     if (rows.length > 0) setProductRows(rows);
                     e.target.value = "";
                   }}
@@ -1834,6 +1836,10 @@ export default function AdminPage() {
               <div className="id-row">
                 <span className="id-label">價格</span>
                 <input type="number" value={productForm.price} onChange={(e) => setProductForm((f) => ({ ...f, price: e.target.value }))} />
+              </div>
+              <div className="id-row">
+                <span className="id-label">限量</span>
+                <input type="number" min={0} value={productForm.stockLimit} onChange={(e) => setProductForm((f) => ({ ...f, stockLimit: e.target.value }))} placeholder="留空＝不限量" />
               </div>
               <div className="id-row">
                 <span className="id-label">商品圖片</span>
@@ -1870,6 +1876,14 @@ export default function AdminPage() {
                           placeholder="價格"
                           style={{ width: 90 }}
                         />
+                        <input
+                          type="number"
+                          min={0}
+                          value={row.stockLimit}
+                          onChange={(e) => updateProductRow(i, "stockLimit", e.target.value)}
+                          placeholder="限量（留空不限）"
+                          style={{ width: 110 }}
+                        />
                       </div>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                         <input type="file" accept="image/*" onChange={(e) => handleProductRowImageUpload(i, e)} style={{ fontSize: 12 }} />
@@ -1898,7 +1912,7 @@ export default function AdminPage() {
 
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" onClick={saveProduct}>{productForm.id ? "儲存修改" : "新增商品"}</button>
-            {productForm.id && <button className="btn secondary" onClick={() => { setProductForm(emptyProductForm); setProductRows([{ style: "", price: "0", imageUrl: "" }]); }}>取消編輯</button>}
+            {productForm.id && <button className="btn secondary" onClick={() => { setProductForm(emptyProductForm); setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]); }}>取消編輯</button>}
             <button className="btn secondary" onClick={() => { setActivePlanForProducts(null); setActiveSection("plans"); }}>關閉商品管理</button>
           </div>
           <div style={{ fontSize: 13, marginTop: 6 }}>{productMsg}</div>

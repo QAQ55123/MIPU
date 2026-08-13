@@ -77,6 +77,7 @@ create table if not exists products (
   style         text default '',
   price         numeric not null default 0,
   image_url     text,
+  stock_limit   integer,          -- 這個款式的限量，留空＝不限量
   sort_order    int default 0
 );
 

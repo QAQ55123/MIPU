@@ -8,7 +8,7 @@ type Plan = {
   categoryId?: string | null; categoryName?: string | null; categoryParentId?: string | null;
   promoImages?: string[];
 };
-type Product = { id: string; name: string; style: string; price: number; imageUrl?: string };
+type Product = { id: string; name: string; style: string; price: number; imageUrl?: string; stockLimit?: number | null; remaining?: number | null };
 type CartItem = { name: string; style: string; qty: number };
 type GlobalCartEntry = {
   planId: string;
@@ -657,21 +657,23 @@ export default function Home() {
     setFavoritesLoading(false);
   }
 
-  function changeQty(name: string, style: string, delta: number) {
+  function changeQty(name: string, style: string, delta: number, max?: number | null) {
     const key = `${name}||${style}`;
     setCart((prev) => {
       const next = { ...prev };
       const cur = next[key] || 0;
-      const val = Math.max(0, cur + delta);
+      let val = Math.max(0, cur + delta);
+      if (max != null) val = Math.min(val, max);
       if (val === 0) delete next[key];
       else next[key] = val;
       return next;
     });
   }
 
-  function setQtyExact(name: string, style: string, raw: string) {
+  function setQtyExact(name: string, style: string, raw: string, max?: number | null) {
     const key = `${name}||${style}`;
-    const val = Math.max(0, Math.floor(Number(raw)) || 0);
+    let val = Math.max(0, Math.floor(Number(raw)) || 0);
+    if (max != null) val = Math.min(val, max);
     setCart((prev) => {
       const next = { ...prev };
       if (val === 0) delete next[key];
@@ -1656,32 +1658,40 @@ export default function Home() {
 
                         <div className="product-info-v3-label">款式</div>
                         <div className="style-pills">
-                          {activeStyles.map((s) => (
-                            <button
-                              key={s.style}
-                              className={`style-pill ${currentStyle === s.style ? "active" : ""}`}
-                              onClick={() => setSelectedStyleByProduct((prev) => ({ ...prev, [activeProductName]: s.style }))}
-                            >
-                              {s.style || "單一款式"}
-                              {(cart[`${s.name}||${s.style}`] || 0) > 0 && (
-                                <span className="style-pill-badge">{cart[`${s.name}||${s.style}`]}</span>
-                              )}
-                            </button>
-                          ))}
+                          {activeStyles.map((s) => {
+                            const soldOut = s.remaining != null && s.remaining <= 0;
+                            return (
+                              <button
+                                key={s.style}
+                                className={`style-pill ${currentStyle === s.style ? "active" : ""}`}
+                                disabled={soldOut}
+                                onClick={() => setSelectedStyleByProduct((prev) => ({ ...prev, [activeProductName]: s.style }))}
+                              >
+                                {s.style || "單一款式"}
+                                {soldOut ? "（已售完）" : s.remaining != null ? `（剩${s.remaining}）` : ""}
+                                {(cart[`${s.name}||${s.style}`] || 0) > 0 && (
+                                  <span className="style-pill-badge">{cart[`${s.name}||${s.style}`]}</span>
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
 
-                        <div className="product-info-v3-label">數量</div>
+                        <div className="product-info-v3-label">
+                          數量{current.remaining != null && <span style={{ color: current.remaining > 0 ? "#8A8779" : "#B3261E", fontWeight: 400, marginLeft: 6 }}>{current.remaining > 0 ? `（剩 ${current.remaining} 件）` : "（已售完）"}</span>}
+                        </div>
                         <div className="stepper stepper-lg">
-                          <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(current.name, current.style, -1)}>－</button>
+                          <button className="step-btn" disabled={qty <= 0 || activePlan.closed} onClick={() => changeQty(current.name, current.style, -1, current.remaining)}>－</button>
                           <input
                             className="qty"
                             type="number"
                             min={0}
+                            max={current.remaining ?? undefined}
                             value={qty}
-                            disabled={activePlan.closed}
-                            onChange={(e) => setQtyExact(current.name, current.style, e.target.value)}
+                            disabled={activePlan.closed || current.remaining === 0}
+                            onChange={(e) => setQtyExact(current.name, current.style, e.target.value, current.remaining)}
                           />
-                          <button className="step-btn" disabled={activePlan.closed} onClick={() => changeQty(current.name, current.style, 1)}>＋</button>
+                          <button className="step-btn" disabled={activePlan.closed || current.remaining === 0 || (current.remaining != null && qty >= current.remaining)} onClick={() => changeQty(current.name, current.style, 1, current.remaining)}>＋</button>
                         </div>
 
                         <div className="product-checkout-row">

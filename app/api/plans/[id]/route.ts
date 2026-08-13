@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getStockUsage, stockKey } from "@/lib/stock";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,10 +18,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const { data: products, error: prodErr } = await supabase
     .from("products")
-    .select("id, name, style, price, image_url")
+    .select("id, name, style, price, image_url, stock_limit")
     .eq("plan_id", params.id)
     .order("sort_order", { ascending: true });
   if (prodErr) return NextResponse.json({ error: prodErr.message }, { status: 500 });
+
+  // 有設限量的商品，算出目前已經被訂購掉多少、還剩多少
+  const hasLimitedProducts = (products || []).some((p) => p.stock_limit != null);
+  const stockUsage = hasLimitedProducts ? await getStockUsage(params.id) : new Map<string, number>();
 
   const closed = plan.deadline ? new Date(plan.deadline).getTime() < Date.now() : false;
 
@@ -58,13 +63,19 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         categoryParentId: plan.categories?.parent_id || null,
         promoImages: plan.promo_images || [],
       },
-      products: (products || []).map((p) => ({
-        id: p.id,
-        name: p.name,
-        style: p.style || "",
-        price: Number(p.price),
-        imageUrl: p.image_url,
-      })),
+      products: (products || []).map((p) => {
+        const limit = p.stock_limit;
+        const sold = limit != null ? stockUsage.get(stockKey(p.name, p.style)) || 0 : 0;
+        return {
+          id: p.id,
+          name: p.name,
+          style: p.style || "",
+          price: Number(p.price),
+          imageUrl: p.image_url,
+          stockLimit: limit,
+          remaining: limit != null ? Math.max(0, limit - sold) : null,
+        };
+      }),
     },
     { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } }
   );
