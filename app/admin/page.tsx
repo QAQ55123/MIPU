@@ -1860,21 +1860,21 @@ export default function AdminPage() {
                 {productRows.map((row, i) => (
                   <div key={i} style={{ display: "flex", gap: 8, marginBottom: 10, padding: 10, background: "#FAF8F2", borderRadius: 8, alignItems: "flex-start" }}>
                     {row.imageUrl && <img src={row.imageUrl} alt="預覽" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />}
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div style={{ display: "flex", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <input
                           type="text"
                           value={row.style}
                           onChange={(e) => updateProductRow(i, "style", e.target.value)}
                           placeholder="款式（沒有分款式可留空）"
-                          style={{ flex: 1 }}
+                          style={{ flex: "2 1 140px", minWidth: 0 }}
                         />
                         <input
                           type="number"
                           value={row.price}
                           onChange={(e) => updateProductRow(i, "price", e.target.value)}
                           placeholder="價格"
-                          style={{ width: 90 }}
+                          style={{ flex: "1 1 70px", minWidth: 0 }}
                         />
                         <input
                           type="number"
@@ -1882,7 +1882,7 @@ export default function AdminPage() {
                           value={row.stockLimit}
                           onChange={(e) => updateProductRow(i, "stockLimit", e.target.value)}
                           placeholder="限量（留空不限）"
-                          style={{ width: 110 }}
+                          style={{ flex: "1 1 90px", minWidth: 0 }}
                         />
                       </div>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
