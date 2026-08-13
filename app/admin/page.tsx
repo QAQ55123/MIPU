@@ -1854,9 +1854,9 @@ export default function AdminPage() {
               {productForm.imageUrl && <img src={productForm.imageUrl} alt="預覽" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, marginBottom: 8 }} />}
             </>
           ) : (
-            <div className="id-row" style={{ alignItems: "flex-start" }}>
-              <span className="id-label" style={{ paddingTop: 8 }}>款式／價格／圖片</span>
-              <div style={{ flex: 1 }}>
+            <div>
+              <div className="id-label" style={{ marginBottom: 8 }}>款式／價格／圖片</div>
+              <div>
                 {productRows.map((row, i) => (
                   <div key={i} style={{ display: "flex", gap: 8, marginBottom: 10, padding: 10, background: "#FAF8F2", borderRadius: 8, alignItems: "flex-start" }}>
                     {row.imageUrl && <img src={row.imageUrl} alt="預覽" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />}
