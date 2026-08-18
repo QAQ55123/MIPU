@@ -1016,6 +1016,7 @@ export default function Home() {
       setAccountProfileMsg("網路連線失敗，請再試一次");
     } finally {
       setAccountProfileSaving(false);
+      setAccountCurrentPw("");
     }
   }
 

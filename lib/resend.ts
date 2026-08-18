@@ -1,25 +1,39 @@
 import nodemailer from "nodemailer";
 
-let cachedTransporter: ReturnType<typeof nodemailer.createTransport> | null = null;
-
 function getTransporter() {
-  if (cachedTransporter) return cachedTransporter;
+  // 不快取連線：Serverless 環境下，快取的 SMTP 連線如果閒置太久會被 Gmail 斷線，
+  // 之後沿用這個已經斷掉的連線寄信，有時候不會噴錯、但信其實根本沒送出去。
+  // 每次都開一條新連線，雖然多一點點延遲，但比較不會遇到這種「顯示成功、實際沒寄出」的狀況。
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) throw new Error("尚未設定 GMAIL_USER / GMAIL_APP_PASSWORD");
 
-  cachedTransporter = nodemailer.createTransport({
+  return nodemailer.createTransport({
     service: "gmail",
     auth: { user, pass },
   });
-  return cachedTransporter;
 }
 
-/** 寄信：html 是主要內容，text 是純文字版本（有助於降低被判定為垃圾郵件的機率） */
+/** 寄信：html 是主要內容，text 是純文字版本（有助於降低被判定為垃圾郵件的機率）。
+ *  失敗會自動重試一次（間隔 1 秒），降低偶發性連線問題造成寄信失敗的機率。 */
 export async function sendEmail(to: string, subject: string, html: string, text?: string) {
-  const transporter = getTransporter();
   const from = process.env.EMAIL_FROM || `米舖 <${process.env.GMAIL_USER}>`;
-  await transporter.sendMail({ from, to, subject, html, text: text || stripHtml(html) });
+  const mail = { from, to, subject, html, text: text || stripHtml(html) };
+  try {
+    const transporter = getTransporter();
+    const info = await transporter.sendMail(mail);
+    if (!info?.accepted || info.accepted.length === 0) {
+      throw new Error("Gmail 沒有接受這封信（accepted 清單是空的），可能被拒收");
+    }
+  } catch (e) {
+    // 重試一次，間隔 1 秒
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const transporter = getTransporter();
+    const info = await transporter.sendMail(mail);
+    if (!info?.accepted || info.accepted.length === 0) {
+      throw new Error("Gmail 沒有接受這封信（accepted 清單是空的），可能被拒收");
+    }
+  }
 }
 
 function stripHtml(html: string): string {
