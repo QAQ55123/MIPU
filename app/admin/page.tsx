@@ -75,6 +75,8 @@ export default function AdminPage() {
   const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [productMsg, setProductMsg] = useState("");
+  const [editedProducts, setEditedProducts] = useState<Record<string, { style: string; price: string; stockLimit: string }>>({});
+  const [savingAllProducts, setSavingAllProducts] = useState(false);
   const [uploadingProductImg, setUploadingProductImg] = useState(false);
 
   // ---- 其他既有工具 ----
@@ -197,6 +199,15 @@ export default function AdminPage() {
     else if (verify === "invalid") setVerifyMsg("驗證連結無效或已過期。");
     if (verify) window.history.replaceState({}, "", window.location.pathname);
   }, []);
+
+  // 商品清單重新載入時，把表格編輯用的暫存值同步成資料庫最新內容（例如剛開商品管理、或存檔後重新整理清單）
+  useEffect(() => {
+    const next: Record<string, { style: string; price: string; stockLimit: string }> = {};
+    for (const p of products) {
+      next[p.id] = { style: p.style || "", price: String(p.price), stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" };
+    }
+    setEditedProducts(next);
+  }, [products]);
 
   useEffect(() => {
     if (unlocked) {
@@ -647,6 +658,44 @@ export default function AdminPage() {
     setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]);
     setActiveSection("products");
     await loadProducts(p.id);
+  }
+
+  function updateEditedProduct(id: string, field: "style" | "price" | "stockLimit", value: string) {
+    setEditedProducts((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  }
+
+  function productRowChanged(p: ProductAdmin): boolean {
+    const e = editedProducts[p.id];
+    if (!e) return false;
+    return e.style !== (p.style || "") || e.price !== String(p.price) || e.stockLimit !== (p.stockLimit != null ? String(p.stockLimit) : "");
+  }
+
+  async function saveAllProductEdits() {
+    if (!activePlanForProducts) return;
+    const changed = products.filter(productRowChanged);
+    if (changed.length === 0) return;
+    setSavingAllProducts(true);
+    setProductMsg("儲存中…");
+    try {
+      for (const p of changed) {
+        const e = editedProducts[p.id];
+        await callJson("/api/admin/products", "PUT", {
+          id: p.id,
+          planId: activePlanForProducts.id,
+          name: p.name,
+          style: e.style,
+          price: e.price,
+          stockLimit: e.stockLimit,
+          imageUrl: p.imageUrl,
+        });
+      }
+      setProductMsg(`已儲存 ${changed.length} 筆修改`);
+      await loadProducts(activePlanForProducts.id);
+    } catch (err: any) {
+      setProductMsg("失敗：" + err.message);
+    } finally {
+      setSavingAllProducts(false);
+    }
   }
 
   function editProduct(p: ProductAdmin) {
@@ -1742,6 +1791,34 @@ export default function AdminPage() {
           {activeSection === "products" && activePlanForProducts && (
         <div className="auth-card">
           <h3>商品管理：{activePlanForProducts.name}</h3>
+          {products.length === 0 && plans.filter((pl) => pl.id !== activePlanForProducts.id).length > 0 && (
+            <div className="id-row">
+              <span className="id-label">複製商品目錄</span>
+              <select
+                defaultValue=""
+                onChange={async (e) => {
+                  const sourcePlanId = e.target.value;
+                  if (!sourcePlanId) return;
+                  const sourcePlan = plans.find((pl) => pl.id === sourcePlanId);
+                  if (!confirm(`確定要把「${sourcePlan?.name}」的整份商品目錄複製過來嗎？（不含限量數量，複製過來的商品限量會是不限量，可以再自己調整）`)) { e.target.value = ""; return; }
+                  setProductMsg("複製中…");
+                  try {
+                    const d = await callJson("/api/admin/products/copy-from-plan", "POST", { targetPlanId: activePlanForProducts.id, sourcePlanId });
+                    setProductMsg(`已複製 ${d.copied} 筆商品`);
+                    await loadProducts(activePlanForProducts.id);
+                  } catch (err: any) {
+                    setProductMsg("失敗：" + err.message);
+                  }
+                  e.target.value = "";
+                }}
+              >
+                <option value="">選一個企劃，把它的商品目錄整份複製過來（這個企劃目前還沒有商品才能用）</option>
+                {plans.filter((pl) => pl.id !== activePlanForProducts.id).map((pl) => (
+                  <option key={pl.id} value={pl.id}>{pl.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div style={{ marginBottom: 12 }}>
             {Object.entries(
               products.reduce<Record<string, ProductAdmin[]>>((acc, p) => {
@@ -1752,32 +1829,60 @@ export default function AdminPage() {
             ).map(([name, styles]) => (
               <div key={name} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#33415C", padding: "6px 0" }}>{name}</div>
-                {styles.map((p) => (
-                  <div
-                    key={p.id}
-                    draggable
-                    onDragStart={() => setDraggedProductId(p.id)}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={() => handleProductDrop(p.id)}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0 8px 10px", borderBottom: "1px dashed #EDE9DC", cursor: "grab", opacity: draggedProductId === p.id ? 0.4 : 1 }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ color: "#B0AC9C", fontSize: 14, cursor: "grab" }} title="拖曳排序">⠿</span>
-                      {p.imageUrl && <img src={p.imageUrl} alt={p.name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />}
-                      <div>
-                        <div style={{ fontSize: 14 }}>{p.style || "單一款式"}</div>
-                        <div style={{ fontSize: 12, color: "#8A8779" }}>NT$ {p.price}{p.stockLimit != null ? `　限量 ${p.stockLimit}` : ""}</div>
-                      </div>
+                {styles.map((p) => {
+                  const edited = editedProducts[p.id] || { style: p.style || "", price: String(p.price), stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" };
+                  const changed = productRowChanged(p);
+                  return (
+                    <div
+                      key={p.id}
+                      draggable
+                      onDragStart={() => setDraggedProductId(p.id)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleProductDrop(p.id)}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 0 8px 10px", borderBottom: "1px dashed #EDE9DC", cursor: "grab", opacity: draggedProductId === p.id ? 0.4 : 1, background: changed ? "#FFF9EC" : "transparent" }}
+                    >
+                      <span style={{ color: "#B0AC9C", fontSize: 14, cursor: "grab", flexShrink: 0 }} title="拖曳排序">⠿</span>
+                      {p.imageUrl && <img src={p.imageUrl} alt={p.name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />}
+                      <input
+                        type="text"
+                        value={edited.style}
+                        onChange={(e) => updateEditedProduct(p.id, "style", e.target.value)}
+                        placeholder="單一款式"
+                        style={{ flex: "2 1 100px", minWidth: 0, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 6, fontSize: 13 }}
+                      />
+                      <input
+                        type="number"
+                        value={edited.price}
+                        onChange={(e) => updateEditedProduct(p.id, "price", e.target.value)}
+                        placeholder="價格"
+                        style={{ flex: "1 1 60px", minWidth: 0, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 6, fontSize: 13 }}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        value={edited.stockLimit}
+                        onChange={(e) => updateEditedProduct(p.id, "stockLimit", e.target.value)}
+                        placeholder="限量"
+                        style={{ flex: "1 1 60px", minWidth: 0, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 6, fontSize: 13 }}
+                      />
+                      <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <button className="btn small secondary" onClick={() => editProduct(p)} title="改商品名稱或圖片">改名/圖片</button>
+                        <button className="btn small danger" onClick={() => deleteProduct(p.id)}>刪除</button>
+                      </span>
                     </div>
-                    <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <button className="btn small secondary" onClick={() => editProduct(p)}>編輯</button>
-                      <button className="btn small danger" onClick={() => deleteProduct(p.id)}>刪除</button>
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ))}
             {products.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>這個企劃還沒有商品</div>}
+            {products.some(productRowChanged) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                <button className="btn small" onClick={saveAllProductEdits} disabled={savingAllProducts}>
+                  {savingAllProducts ? "儲存中…" : "全部儲存"}
+                </button>
+                <span style={{ fontSize: 12, color: "#B08E5A" }}>有款式／價格／限量被修改還沒儲存（黃底標示）</span>
+              </div>
+            )}
           </div>
 
           <div className="id-row">
