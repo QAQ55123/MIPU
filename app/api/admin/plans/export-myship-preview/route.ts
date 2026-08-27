@@ -27,7 +27,6 @@ export async function GET(req: Request) {
       planName: result.planName,
       totalCustomers: result.totalCustomers,
       groupCount: result.groups.length,
-      skippedZero: result.skippedZero,
       overLimit: result.overLimit,
     });
   } catch (e: any) {

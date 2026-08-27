@@ -2677,15 +2677,15 @@ export default function AdminPage() {
             <h3>匯出賣貨便：{myshipPlan.name}</h3>
             <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
               把這個企劃底下每位顧客的「應付總額 － 已收金額」差額整理成賣貨便官方「單規格商品匯入」範本格式，
-              下載後可以直接上傳到賣貨便後台批次建立商品。已經付清（差額為0）的顧客不會列入。
+              下載後可以直接上傳到賣貨便後台批次建立商品。金額是成本試算表「客戶應收運費」算好的尚欠金額（已含運費），
+              不管金額是不是 0，這個企劃底下所有訂單的顧客都會列出來（這份名單是給顧客自己選名字下單用的）。
             </p>
             {myshipLoading && <div style={{ fontSize: 13, marginTop: 8 }}>計算中…</div>}
             {myshipMsg && <div style={{ fontSize: 13, marginTop: 8, color: "#B3261E" }}>{myshipMsg}</div>}
             {myshipPreview && (
               <div style={{ fontSize: 13, marginTop: 10, background: "#FAF8F2", borderRadius: 8, padding: 10 }}>
-                <div>還有差額的顧客：<strong>{myshipPreview.totalCustomers}</strong> 人</div>
+                <div>企劃底下的顧客：<strong>{myshipPreview.totalCustomers}</strong> 人</div>
                 <div>會分成 <strong>{myshipPreview.groupCount}</strong> 個賣貨便商品（每個商品最多 50 個規格，超過會自動分組）</div>
-                {myshipPreview.skippedZero > 0 && <div style={{ color: "#8A8779" }}>已付清、不列入：{myshipPreview.skippedZero} 人</div>}
                 {myshipPreview.overLimit?.length > 0 && (
                   <div style={{ color: "#B3261E", marginTop: 6 }}>
                     以下顧客差額超過賣貨便單一規格 NT$20,000 上限，沒有列入匯出檔，需要你自己另外處理：

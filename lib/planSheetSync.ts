@@ -68,7 +68,7 @@ async function getPlanOrders(planId: string) {
   return data || [];
 }
 
-function safeTabName(name: string): string {
+export function safeTabName(name: string): string {
   return (name || "未命名企劃").replace(/[\\/?*\[\]:]/g, "_").slice(0, 90);
 }
 
