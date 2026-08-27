@@ -61,6 +61,12 @@ export default function AdminPage() {
   const [notifyLoadingRecipients, setNotifyLoadingRecipients] = useState(false);
   const [notifySending, setNotifySending] = useState(false);
   const [notifyResult, setNotifyResult] = useState<any>(null);
+
+  // 匯出賣貨便
+  const [myshipPlan, setMyshipPlan] = useState<PlanAdmin | null>(null);
+  const [myshipPreview, setMyshipPreview] = useState<any>(null);
+  const [myshipLoading, setMyshipLoading] = useState(false);
+  const [myshipMsg, setMyshipMsg] = useState("");
   const [uploadingPlanImg, setUploadingPlanImg] = useState(false);
   const [uploadingPromoImg, setUploadingPromoImg] = useState(false);
 
@@ -562,6 +568,28 @@ export default function AdminPage() {
       if (r.ok) setNotifyRecipientInfo({ emailCount: d.emailCount, orderUsernameCount: d.orderUsernameCount });
     } catch {}
     setNotifyLoadingRecipients(false);
+  }
+
+  async function openMyshipPanel(p: PlanAdmin) {
+    setMyshipPlan(p);
+    setMyshipPreview(null);
+    setMyshipMsg("");
+    setMyshipLoading(true);
+    try {
+      const r = await fetch(`/api/admin/plans/export-myship-preview?planId=${p.id}`, { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok) { setMyshipMsg(d.error || "查詢失敗"); return; }
+      setMyshipPreview(d);
+    } catch {
+      setMyshipMsg("網路連線失敗");
+    } finally {
+      setMyshipLoading(false);
+    }
+  }
+
+  function downloadMyshipFile() {
+    if (!myshipPlan) return;
+    window.location.href = `/api/admin/plans/export-myship?planId=${myshipPlan.id}`;
   }
 
   async function sendNotifyEmail() {
@@ -1770,7 +1798,10 @@ export default function AdminPage() {
                       <button className="btn small secondary" onClick={() => openProductManager(p)}>管理商品</button>
                       <button className="btn small secondary" onClick={() => editPlan(p)}>編輯</button>
                       {currentRole === "owner" && (
-                        <button className="btn small secondary" onClick={() => openNotifyPanel(p)}>發送到貨通知信</button>
+                        <>
+                          <button className="btn small secondary" onClick={() => openNotifyPanel(p)}>發送到貨通知信</button>
+                          <button className="btn small secondary" onClick={() => openMyshipPanel(p)}>匯出賣貨便</button>
+                        </>
                       )}
                       <button className="btn small danger" onClick={() => deletePlan(p.id)}>刪除</button>
                       {currentRole === "owner" && (
@@ -2635,6 +2666,39 @@ export default function AdminPage() {
                 {notifySending ? "寄送中…" : "確認發送"}
               </button>
               <button className="btn secondary" onClick={() => setNotifyPlan(null)}>關閉</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {myshipPlan && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }} onClick={() => setMyshipPlan(null)}>
+          <div className="auth-card" style={{ maxWidth: 480, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <h3>匯出賣貨便：{myshipPlan.name}</h3>
+            <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+              把這個企劃底下每位顧客的「應付總額 － 已收金額」差額整理成賣貨便官方「單規格商品匯入」範本格式，
+              下載後可以直接上傳到賣貨便後台批次建立商品。已經付清（差額為0）的顧客不會列入。
+            </p>
+            {myshipLoading && <div style={{ fontSize: 13, marginTop: 8 }}>計算中…</div>}
+            {myshipMsg && <div style={{ fontSize: 13, marginTop: 8, color: "#B3261E" }}>{myshipMsg}</div>}
+            {myshipPreview && (
+              <div style={{ fontSize: 13, marginTop: 10, background: "#FAF8F2", borderRadius: 8, padding: 10 }}>
+                <div>還有差額的顧客：<strong>{myshipPreview.totalCustomers}</strong> 人</div>
+                <div>會分成 <strong>{myshipPreview.groupCount}</strong> 個賣貨便商品（每個商品最多 50 個規格，超過會自動分組）</div>
+                {myshipPreview.skippedZero > 0 && <div style={{ color: "#8A8779" }}>已付清、不列入：{myshipPreview.skippedZero} 人</div>}
+                {myshipPreview.overLimit?.length > 0 && (
+                  <div style={{ color: "#B3261E", marginTop: 6 }}>
+                    以下顧客差額超過賣貨便單一規格 NT$20,000 上限，沒有列入匯出檔，需要你自己另外處理：
+                    <div>{myshipPreview.overLimit.join("、")}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="btn small" onClick={downloadMyshipFile} disabled={myshipLoading || !myshipPreview || myshipPreview.totalCustomers === 0}>
+                下載匯入檔（.xlsx）
+              </button>
+              <button className="btn small secondary" onClick={() => setMyshipPlan(null)}>關閉</button>
             </div>
           </div>
         </div>

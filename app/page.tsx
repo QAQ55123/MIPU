@@ -363,7 +363,7 @@ export default function Home() {
     if (regPassword.length < 6) return setAuthMsg("密碼至少要 6 個字");
     if (regPassword !== regConfirmPassword) return setAuthMsg("兩次輸入的密碼不一樣");
     if (!regProfileUrl.trim()) return setAuthMsg("請填寫個人頁網址");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail)) return setAuthMsg("請輸入有效的 Email");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.trim())) return setAuthMsg("請輸入有效的 Email");
 
     setAuthSubmitting(true);
     try {
@@ -452,7 +452,7 @@ export default function Home() {
     if (legacyUsername.trim().length < 1) return setLegacyMsg("請輸入帳號");
     if (legacyPassword.length < 6) return setLegacyMsg("密碼至少要 6 個字");
     if (legacyPassword !== legacyConfirmPassword) return setLegacyMsg("兩次輸入的密碼不一樣");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyEmail)) return setLegacyMsg("請輸入有效的 Email");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyEmail.trim())) return setLegacyMsg("請輸入有效的 Email");
     setLegacySubmitting(true);
     try {
       const r = await fetch("/api/auth/legacy-claim", {

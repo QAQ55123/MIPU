@@ -15,7 +15,7 @@ export default function AdminRegisterPage() {
   async function onSubmit() {
     setMsg("");
     if (username.trim().length < 1) return setMsg("請輸入帳號");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setMsg("請輸入有效的 Email");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setMsg("請輸入有效的 Email");
     if (password.length < 8) return setMsg("密碼至少要 8 個字");
     if (password !== confirmPassword) return setMsg("兩次輸入的密碼不一樣");
     if (!inviteCode.trim()) return setMsg("請輸入邀請碼");
