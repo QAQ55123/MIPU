@@ -2629,7 +2629,7 @@ export default function AdminPage() {
             <h3>發送到貨通知信：{notifyPlan.name}</h3>
             <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
               會寄給這個企劃底下所有訂單的顧客（不管取付/匯款，取消審核中的也算，只要訂單還存在資料庫裡）。
-              內文可以用 <code>{"{企劃名稱}"}</code> 這個佔位符，會自動換成企劃名稱；如果有填「賣場連結」，內文裡所有「賣場」兩字都會自動變成可以點擊的連結。
+              內文可以用 <code>{"{企劃名稱}"}</code> 這個佔位符，會自動換成企劃名稱；如果有填「賣場連結」，內文裡「前往賣場」這個詞組裡的「賣場」會自動變成可以點擊的連結，其他地方單獨出現的「賣場」兩字維持純文字。
             </p>
             <div style={{ fontSize: 13, margin: "8px 0", color: "#33415C" }}>
               {notifyLoadingRecipients

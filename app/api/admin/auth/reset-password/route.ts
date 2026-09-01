@@ -17,7 +17,13 @@ export async function POST(req: Request) {
   }
 
   const passwordHash = await hashAdminPw(password);
-  await supabase.from("admins").update({ password_hash: passwordHash, reset_token: null, reset_token_expires: null }).eq("id", admin.id);
+  const { error, data: updated } = await supabase
+    .from("admins")
+    .update({ password_hash: passwordHash, reset_token: null, reset_token_expires: null })
+    .eq("id", admin.id)
+    .select();
+  if (error) return NextResponse.json({ error: "密碼更新失敗：" + error.message }, { status: 500 });
+  if (!updated || updated.length === 0) return NextResponse.json({ error: "密碼更新失敗，請稍後再試" }, { status: 500 });
 
   return NextResponse.json({ ok: true });
 }

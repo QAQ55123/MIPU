@@ -69,7 +69,7 @@ export async function computeMyshipExport(planId: string): Promise<MyshipExportR
     const chunk = rows.slice(i, i + MAX_ROWS_PER_PRODUCT);
     const groupIdx = Math.floor(i / MAX_ROWS_PER_PRODUCT);
     const productName = groups.length === 0 && rows.length <= MAX_ROWS_PER_PRODUCT ? plan.name : `${plan.name}(${groupIdx + 1})`;
-    groups.push({ productName, description: `『${plan.name}』代收尾款`, rows: chunk });
+    groups.push({ productName, description: "紀錄", rows: chunk });
   }
 
   return {

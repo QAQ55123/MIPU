@@ -62,7 +62,8 @@ export async function POST(req: Request) {
     .map((line) => {
       const escaped = escapeHtml(line);
       // 內文裡的「賣場」兩字，如果有填賣場連結，就自動變成超連結
-      return shopLink ? escaped.split("賣場").join(`<a href="${escapeHtml(shopLink)}" target="_blank" rel="noopener">賣場</a>`) : escaped;
+      // 只有「前往賣場」這個詞組裡的「賣場」要變超連結，其他地方單純出現「賣場」兩字（例如「開放賣場囉」）維持純文字
+      return shopLink ? escaped.split("前往賣場").join(`前往<a href="${escapeHtml(shopLink)}" target="_blank" rel="noopener">賣場</a>`) : escaped;
     })
     .join("<br/>")}</div>`;
 

@@ -20,7 +20,8 @@ export async function POST(req: Request) {
 
   if (newPassword) {
     const newHash = await hashMemberPw(newPassword);
-    await supabase.from("members").update({ password_hash: newHash }).eq("id", member.id);
+    const { error: pwErr } = await supabase.from("members").update({ password_hash: newHash }).eq("id", member.id);
+    if (pwErr) return NextResponse.json({ error: "密碼更新失敗：" + pwErr.message }, { status: 500 });
   }
 
   const token = signMemberSession(member.id, member.username);
