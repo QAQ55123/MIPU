@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./supabase";
 import {
   getSheets, requireSheetId, requireCostSheetId,
   ensureSheetExistsCached, getValuesAndFormulas, batchGetValues, columnToLetter,
-  buildClearRequest, buildWriteRequest, buildBoldRangeRequest, buildHideSheetRequest, buildNumberFormatRequest,
+  buildClearRequest, buildWriteRequest, buildBoldRangeRequest, buildHideSheetRequest, buildNumberFormatRequest, buildEnsureColumnCountRequest,
   runBatch, type BatchRequest, type SheetsClient, type SheetMetaCache,
 } from "./googleSheets";
 
@@ -287,13 +287,16 @@ async function buildCostTabRequests(
     data.push([c.display, feeF, subtotalF, `=B${row}+C${row}`, Number(c.paid) || 0, `=D${row}-E${row}`, ""]);
   });
 
+  const detailColCount = Math.max(26, 2 + customers.length + 2); // 商品+款式 兩固定欄，加每位客戶各一欄，多留一點緩衝
+
   return {
     requests: [
       buildClearRequest(sheetId, 100000, 7),
       buildWriteRequest(sheetId, 0, 0, data),
       buildBoldRangeRequest(sheetId, 0, 1, 0, 7),
       buildBoldRangeRequest(sheetId, N + 16, N + 18, 0, 7),
-      buildClearRequest(detailSheetId, 100000, 26),
+      buildEnsureColumnCountRequest(detailSheetId, detailColCount),
+      buildClearRequest(detailSheetId, 100000, detailColCount),
       buildWriteRequest(detailSheetId, 0, 0, ddata),
       buildHideSheetRequest(detailSheetId, true),
     ],

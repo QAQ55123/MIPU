@@ -164,6 +164,18 @@ export function buildHideSheetRequest(sheetId: number, hidden: boolean): BatchRe
   return { updateSheetProperties: { properties: { sheetId, hidden }, fields: "hidden" } };
 }
 
+/** 建構「確保分頁至少有這麼多欄」的請求。新分頁預設只有 26 欄（A~Z），
+ *  如果要寫入的資料欄數超過這個數字（例如客戶應收運費的隱藏明細分頁，一人一欄，人一多就會超過），
+ *  寫入時會被 Google 擋下來，所以寫入前要先確保分頁夠寬。 */
+export function buildEnsureColumnCountRequest(sheetId: number, minColumnCount: number): BatchRequest {
+  return {
+    updateSheetProperties: {
+      properties: { sheetId, gridProperties: { columnCount: minColumnCount } },
+      fields: "gridProperties.columnCount",
+    },
+  };
+}
+
 /** 把一批請求一次送出（這是真正打 API 的地方，不管裡面包了幾個操作，Google 都只算「一次」寫入用量） */
 export async function runBatch(sheets: SheetsClient, spreadsheetId: string, requests: BatchRequest[]) {
   if (requests.length === 0) return;
