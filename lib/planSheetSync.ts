@@ -287,7 +287,7 @@ async function buildCostTabRequests(
     data.push([c.display, feeF, subtotalF, `=B${row}+C${row}`, Number(c.paid) || 0, `=D${row}-E${row}`, ""]);
   });
 
-  const detailColCount = Math.max(26, 2 + customers.length + 2); // 商品+款式 兩固定欄，加每位客戶各一欄，多留一點緩衝
+  const detailColCount = Math.max(60, 2 + customers.length + 10); // 商品+款式 兩固定欄，加每位客戶各一欄，多留寬一點的緩衝，避免之後人數變動又要縮小分頁
 
   return {
     requests: [

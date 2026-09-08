@@ -167,11 +167,16 @@ export function buildHideSheetRequest(sheetId: number, hidden: boolean): BatchRe
 /** 建構「確保分頁至少有這麼多欄」的請求。新分頁預設只有 26 欄（A~Z），
  *  如果要寫入的資料欄數超過這個數字（例如客戶應收運費的隱藏明細分頁，一人一欄，人一多就會超過），
  *  寫入時會被 Google 擋下來，所以寫入前要先確保分頁夠寬。 */
+/** 建構「確保分頁至少有這麼多欄」的請求。新分頁預設只有 26 欄（A~Z），
+ *  如果要寫入的資料欄數超過這個數字（例如客戶應收運費的隱藏明細分頁，一人一欄，人一多就會超過），
+ *  寫入時會被 Google 擋下來，所以寫入前要先確保分頁夠寬。
+ *  一律只「調大」不「調小」（傳入的欄數已經是外部算好的足夠寬度，這裡加上安全的固定列數，
+ *  避免只更新 columnCount 時，Google 對 gridProperties 的局部更新把列數也連帶動到）。 */
 export function buildEnsureColumnCountRequest(sheetId: number, minColumnCount: number): BatchRequest {
   return {
     updateSheetProperties: {
-      properties: { sheetId, gridProperties: { columnCount: minColumnCount } },
-      fields: "gridProperties.columnCount",
+      properties: { sheetId, gridProperties: { columnCount: minColumnCount, rowCount: 1000 } },
+      fields: "gridProperties.columnCount,gridProperties.rowCount",
     },
   };
 }
