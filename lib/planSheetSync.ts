@@ -332,37 +332,85 @@ async function buildCostTabRequests(
   };
 }
 
-function buildCostSummaryRequests(
-  sheetId: number,
-  rows: { name: string; tab: string; incomeRow: number; costRow: number; profitRow: number; custStartRow: number; custCount: number }[]
-): BatchRequest[] {
-  const data: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤", "已收款金額", "未收款金額", "淨利潤率"]];
-  rows.forEach((r, i) => {
+export const ARCHIVED_SUFFIX = "（已封存）";
+const SUMMARY_HEADER = ["企劃", "銷售(收入)", "進貨成本", "淨利潤", "已收款金額", "未收款金額", "淨利潤率"];
+
+export type ArchivedSummaryRow = { plan_name: string; income: number; cost: number; profit: number; paid: number; owing: number };
+
+/** 讀取「徹底刪除時封存」的企劃總覽數字（資料表 cost_archives）。
+ *  資料表還沒建立（migration 沒跑）時回傳空陣列，不影響一般同步。 */
+export async function getArchivedSummaryRows(): Promise<ArchivedSummaryRow[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("cost_archives")
+    .select("plan_name, income, cost, profit, paid, owing")
+    .order("archived_at", { ascending: true });
+  if (error) {
+    console.error("讀取 cost_archives 失敗（是否尚未執行 migration_add_cost_archives.sql？）：", error.message);
+    return [];
+  }
+  return (data || []).map((r: any) => ({
+    plan_name: r.plan_name,
+    income: Number(r.income) || 0,
+    cost: Number(r.cost) || 0,
+    profit: Number(r.profit) || 0,
+    paid: Number(r.paid) || 0,
+    owing: Number(r.owing) || 0,
+  }));
+}
+
+/** 讀取目前總覽裡「現有企劃」的列（A~F 欄，公式保留公式），排除合計列、已封存列，以及 excludeName 指定的企劃 */
+export async function readLiveSummaryRows(sheets: SheetsClient, costId: string, excludeName?: string): Promise<(string | number)[][]> {
+  const { values, formulas } = await getValuesAndFormulas(sheets, costId, `總覽!A1:G100000`);
+  return values
+    .slice(1)
+    .map((v, i) => {
+      const f = formulas[i + 1] || [];
+      return [0, 1, 2, 3, 4, 5].map((ci) => (f[ci] ? f[ci] : v[ci] ?? ""));
+    })
+    .filter((r) => {
+      const name = String(r[0] || "").trim();
+      if (!name || name === "合計") return false;
+      if (name.endsWith(ARCHIVED_SUFFIX)) return false;
+      if (excludeName != null && name === excludeName) return false;
+      return true;
+    });
+}
+
+/** 組出整個「總覽」分頁的寫入請求：現有企劃（公式，連到各企劃分頁）＋已封存企劃（固定數字）＋合計 */
+export function buildSummaryRequests(sheetId: number, liveRows: (string | number)[][], archived: ArchivedSummaryRow[]): BatchRequest[] {
+  const archivedRows: (string | number)[][] = archived.map((a) => [
+    `${a.plan_name}${ARCHIVED_SUFFIX}`, a.income, a.cost, a.profit, a.paid, a.owing,
+  ]);
+  const dataRows: (string | number)[][] = [...liveRows, ...archivedRows].map((r, i) => {
     const row = i + 2;
-    const ref = `'${r.tab.replace(/'/g, "''")}'!`;
-    const custEndRow = r.custStartRow + r.custCount - 1;
-    const paidF = r.custCount > 0 ? `=SUM(${ref}E${r.custStartRow}:E${custEndRow})` : 0;
-    const owingF = r.custCount > 0 ? `=SUM(${ref}F${r.custStartRow}:F${custEndRow})` : 0;
-    const marginF = `=IF(B${row}=0,"",D${row}/B${row})`;
-    data.push([r.name, `=${ref}C${r.incomeRow}`, `=${ref}C${r.costRow}`, `=${ref}C${r.profitRow}`, paidF, owingF, marginF]);
+    return [...r.slice(0, 6), `=IF(B${row}=0,"",D${row}/B${row})`];
   });
-  const n = rows.length;
+  const finalData: (string | number)[][] = [SUMMARY_HEADER, ...dataRows];
+  const n = dataRows.length;
   const requests: BatchRequest[] = [
     buildClearRequest(sheetId, 100000, 7),
-    buildWriteRequest(sheetId, 0, 0, data),
     buildBoldRangeRequest(sheetId, 0, 1, 0, 7),
     buildNumberFormatRequest(sheetId, 1, n + 1, 6, 7, "0.0%"),
   ];
   if (n > 0) {
     const first = 2, last = 1 + n;
     const totalRow = n + 3;
-    data.push(["", "", "", "", "", "", ""]);
-    data.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`, `=SUM(E${first}:E${last})`, `=SUM(F${first}:F${last})`, `=IF(B${totalRow}=0,"",D${totalRow}/B${totalRow})`]);
-    requests[1] = buildWriteRequest(sheetId, 0, 0, data);
+    finalData.push(["", "", "", "", "", "", ""]);
+    finalData.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`, `=SUM(E${first}:E${last})`, `=SUM(F${first}:F${last})`, `=IF(B${totalRow}=0,"",D${totalRow}/B${totalRow})`]);
     requests.push(buildBoldRangeRequest(sheetId, totalRow - 1, totalRow, 0, 7));
     requests.push(buildNumberFormatRequest(sheetId, totalRow - 1, totalRow, 6, 7, "0.0%"));
   }
+  requests.splice(1, 0, buildWriteRequest(sheetId, 0, 0, finalData));
   return requests;
+}
+
+function summaryRowForPlan(name: string, tab: string, incomeRow: number, costRow: number, profitRow: number, custStartRow: number, custCount: number): (string | number)[] {
+  const ref = `'${tab.replace(/'/g, "''")}'!`;
+  const custEndRow = custStartRow + custCount - 1;
+  const paidF = custCount > 0 ? `=SUM(${ref}E${custStartRow}:E${custEndRow})` : 0;
+  const owingF = custCount > 0 ? `=SUM(${ref}F${custStartRow}:F${custEndRow})` : 0;
+  return [name, `=${ref}C${incomeRow}`, `=${ref}C${costRow}`, `=${ref}C${profitRow}`, paidF, owingF];
 }
 
 export async function syncOnePlanCostTab(planId: string, planName: string) {
@@ -378,44 +426,10 @@ export async function syncOnePlanCostTab(planId: string, planName: string) {
     const { requests: costRequests, custStartRow, custCount, incomeRow, costRow, profitRow } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
 
     const summarySheetId = await ensureSheetExistsCached(sheets, costId, "總覽", cache, 0);
-    const { values, formulas } = await getValuesAndFormulas(sheets, costId, `總覽!A1:G100000`);
-
-    const otherRows = values
-      .slice(1)
-      .map((v, i) => {
-        const f = formulas[i + 1] || [];
-        return [0, 1, 2, 3, 4, 5].map((ci) => (f[ci] ? f[ci] : v[ci] ?? ""));
-      })
-      .filter((r) => String(r[0] || "").trim() && String(r[0] || "").trim() !== "合計" && String(r[0] || "").trim() !== planName);
-
-    const ref = `'${tabName.replace(/'/g, "''")}'!`;
-    const custEndRow = custStartRow + custCount - 1;
-    const paidF = custCount > 0 ? `=SUM(${ref}E${custStartRow}:E${custEndRow})` : 0;
-    const owingF = custCount > 0 ? `=SUM(${ref}F${custStartRow}:F${custEndRow})` : 0;
-    const selfRow: (string | number)[] = [
-      planName, `=${ref}C${incomeRow}`, `=${ref}C${costRow}`, `=${ref}C${profitRow}`, paidF, owingF,
-    ];
-    const dataRows: (string | number)[][] = [...otherRows, selfRow].map((r, i) => {
-      const row = i + 2;
-      return [...r, `=IF(B${row}=0,"",D${row}/B${row})`];
-    });
-
-    const finalData: (string | number)[][] = [["企劃", "銷售(收入)", "進貨成本", "淨利潤", "已收款金額", "未收款金額", "淨利潤率"], ...dataRows];
-    const n = dataRows.length;
-    const summaryRequests: BatchRequest[] = [
-      buildClearRequest(summarySheetId, 100000, 7),
-      buildBoldRangeRequest(summarySheetId, 0, 1, 0, 7),
-      buildNumberFormatRequest(summarySheetId, 1, n + 1, 6, 7, "0.0%"),
-    ];
-    if (n > 0) {
-      const first = 2, last = 1 + n;
-      const totalRow = n + 3;
-      finalData.push(["", "", "", "", "", "", ""]);
-      finalData.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`, `=SUM(E${first}:E${last})`, `=SUM(F${first}:F${last})`, `=IF(B${totalRow}=0,"",D${totalRow}/B${totalRow})`]);
-      summaryRequests.push(buildBoldRangeRequest(summarySheetId, totalRow - 1, totalRow, 0, 7));
-      summaryRequests.push(buildNumberFormatRequest(summarySheetId, totalRow - 1, totalRow, 6, 7, "0.0%"));
-    }
-    summaryRequests.splice(1, 0, buildWriteRequest(summarySheetId, 0, 0, finalData));
+    const otherRows = await readLiveSummaryRows(sheets, costId, planName);
+    const selfRow = summaryRowForPlan(planName, tabName, incomeRow, costRow, profitRow, custStartRow, custCount);
+    const archived = await getArchivedSummaryRows();
+    const summaryRequests = buildSummaryRequests(summarySheetId, [...otherRows, selfRow], archived);
 
     await runBatch(sheets, costId, [...costRequests, ...summaryRequests]);
   });
@@ -471,7 +485,9 @@ export async function syncCostWorkbook() {
   }
 
   const summarySheetId = await ensureSheetExistsCached(sheets, costId, "總覽", cache, 0);
-  allRequests.push(...buildCostSummaryRequests(summarySheetId, summaryRows));
+  const archived = await getArchivedSummaryRows();
+  const liveRows = summaryRows.map((r) => summaryRowForPlan(r.name, r.tab, r.incomeRow, r.costRow, r.profitRow, r.custStartRow, r.custCount));
+  allRequests.push(...buildSummaryRequests(summarySheetId, liveRows, archived));
 
   if (allRequests.length > 0) {
     await withRetry(() => runBatch(sheets, costId, allRequests));

@@ -553,11 +553,11 @@ export default function AdminPage() {
   }
 
   async function purgePlan(id: string, name: string) {
-    if (!confirm(`確定要「徹底刪除」企劃「${name}」嗎？\n\n這會連同底下所有訂單、商品明細一起永久刪除，也會把 Google Sheet 上這個企劃的訂單分頁刪掉，無法復原！\n\n（成本試算表的分頁不會被動到，財務紀錄會保留）`)) return;
+    if (!confirm(`確定要「徹底刪除」企劃「${name}」嗎？\n\n這會連同底下所有訂單、商品明細一起永久刪除，也會把 Google Sheet 上這個企劃的訂單分頁刪掉，無法復原！\n\n（成本試算表的分頁會先複製一份數值快照到「封存試算表」，再從成本試算表移除，隱藏的明細分頁也會一起刪除；總覽會保留這個企劃的數字，標示「已封存」，合計不變）`)) return;
     try {
       const d = await callJson("/api/admin/plans", "DELETE", { id, purgeOrders: true });
       if (activePlanForProducts?.id === id) setActivePlanForProducts(null);
-      setPlanMsg(d.syncWarning || `已徹底刪除，一併清除了 ${d.purgedOrderCount} 筆訂單。`);
+      setPlanMsg(d.syncWarning || `已徹底刪除，一併清除了 ${d.purgedOrderCount} 筆訂單。${d.archivedTab ? `成本表已封存到封存試算表的「${d.archivedTab}」分頁。` : ""}`);
       loadPlans();
     } catch (e: any) {
       setPlanMsg("失敗：" + e.message);
@@ -1855,7 +1855,7 @@ export default function AdminPage() {
                       )}
                       <button className="btn small danger" onClick={() => deletePlan(p.id)}>刪除</button>
                       {currentRole === "owner" && (
-                        <button className="btn small danger" onClick={() => purgePlan(p.id, p.name)} title="連訂單一起永久刪除，成本試算表資料會保留">徹底刪除（含訂單）</button>
+                        <button className="btn small danger" onClick={() => purgePlan(p.id, p.name)} title="連訂單一起永久刪除，成本分頁會先封存到封存試算表">徹底刪除（含訂單）</button>
                       )}
                     </span>
                   </div>

@@ -2,6 +2,7 @@ import { google } from "googleapis";
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 export const COST_SHEET_ID = process.env.GOOGLE_COST_SHEET_ID;
+export const COST_ARCHIVE_SHEET_ID = process.env.GOOGLE_COST_ARCHIVE_SHEET_ID;
 export { SHEET_ID };
 
 function getAuth() {
@@ -39,6 +40,10 @@ export function requireSheetId(): string {
 export function requireCostSheetId(): string {
   if (!COST_SHEET_ID) throw new Error("尚未設定 GOOGLE_COST_SHEET_ID");
   return COST_SHEET_ID;
+}
+export function requireCostArchiveSheetId(): string {
+  if (!COST_ARCHIVE_SHEET_ID) throw new Error("尚未設定 GOOGLE_COST_ARCHIVE_SHEET_ID（封存試算表），為了避免成本資料遺失，徹底刪除已取消，沒有刪除任何東西");
+  return COST_ARCHIVE_SHEET_ID;
 }
 
 /** 欄號轉字母：1→A, 27→AA */

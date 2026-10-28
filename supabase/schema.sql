@@ -221,3 +221,17 @@ create table if not exists blacklist (
   created_at  timestamptz not null default now()
 );
 create unique index if not exists idx_blacklist_type_norm on blacklist (type, value_norm);
+
+-- 徹底刪除企劃時封存的成本總覽數字（見 migration_add_cost_archives.sql）
+create table if not exists cost_archives (
+  id uuid primary key default gen_random_uuid(),
+  plan_name text not null,
+  archive_tab text not null,
+  income numeric not null default 0,
+  cost numeric not null default 0,
+  profit numeric not null default 0,
+  paid numeric not null default 0,
+  owing numeric not null default 0,
+  archived_at timestamptz not null default now()
+);
+alter table cost_archives enable row level security;

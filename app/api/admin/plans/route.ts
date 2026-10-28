@@ -5,9 +5,12 @@ import { deleteStorageFiles } from "@/lib/storage";
 import { syncPlansSheet } from "@/lib/sheetsSync";
 import { requireSheetId, deleteSheetTabIfExists } from "@/lib/googleSheets";
 import { upsertPlanDeadlineEvent, deletePlanDeadlineEvent } from "@/lib/googleCalendar";
+import { safeTabName } from "@/lib/planSheetSync";
+import { archivePlanCostBeforeDelete, rollbackPlanCostArchive, removePlanCostTabsAfterDelete, type ArchiveResult } from "@/lib/costArchive";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 
 /** 後台用：列出所有企劃（不受前台顯示對象限制），含分類名稱 */
@@ -197,23 +200,40 @@ export async function DELETE(req: Request) {
 
   let purgedOrderCount = 0;
   let sheetTabDeleteWarning = "";
+  let archiveResult: ArchiveResult = { archived: false };
 
   if (purgeOrders && plan) {
-    // 連訂單一起刪除：先刪 order_items，再刪 orders（成本試算表不會動，資料保留）
+    // 先把成本分頁封存到封存試算表、總覽數字存進資料庫；這一步失敗就整個取消，什麼都不刪
+    try {
+      archiveResult = await archivePlanCostBeforeDelete(plan.name);
+    } catch (e: any) {
+      return NextResponse.json({ error: "封存成本表失敗，已取消徹底刪除（沒有刪除任何資料）：" + (e?.message || "未知錯誤") }, { status: 500 });
+    }
+
+    // 連訂單一起刪除：先刪 order_items，再刪 orders
     const { data: orders } = await supabase.from("orders").select("id").eq("plan_id", plan.id);
     const orderIds = (orders || []).map((o) => o.id);
     purgedOrderCount = orderIds.length;
     if (orderIds.length) {
       const { error: itemsErr } = await supabase.from("order_items").delete().in("order_id", orderIds);
-      if (itemsErr) return NextResponse.json({ error: "刪除訂單明細失敗：" + itemsErr.message }, { status: 500 });
+      if (itemsErr) {
+        await rollbackPlanCostArchive(archiveResult);
+        return NextResponse.json({ error: "刪除訂單明細失敗：" + itemsErr.message }, { status: 500 });
+      }
       const { error: ordersErr } = await supabase.from("orders").delete().in("id", orderIds);
-      if (ordersErr) return NextResponse.json({ error: "刪除訂單失敗：" + ordersErr.message }, { status: 500 });
+      if (ordersErr) {
+        await rollbackPlanCostArchive(archiveResult);
+        return NextResponse.json({ error: "刪除訂單失敗：" + ordersErr.message }, { status: 500 });
+      }
     }
   }
 
   // 注意：一般刪除只會連同底下的商品一起刪除（外鍵 cascade），訂單記錄會保留（只是不再連到這個企劃，企劃名稱已經有快照）
   const { error } = await supabase.from("plans").delete().eq("id", body.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (purgeOrders) await rollbackPlanCostArchive(archiveResult);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   deleteStorageFiles(urlsToDelete).catch(() => {});
 
@@ -222,14 +242,22 @@ export async function DELETE(req: Request) {
   }
 
   if (purgeOrders && plan?.name) {
-    // 刪掉主試算表裡這個企劃的分頁（訂單明細+商品目錄）；成本試算表刻意不動，保留財務歷史紀錄
+    const warnings: string[] = [];
+    // 刪掉主試算表裡這個企劃的分頁（訂單明細+商品目錄）
     try {
-      await deleteSheetTabIfExists(requireSheetId(), plan.name);
+      await deleteSheetTabIfExists(requireSheetId(), safeTabName(plan.name));
     } catch (e: any) {
-      sheetTabDeleteWarning = "企劃與訂單已刪除，但清除 Google Sheet 分頁時發生問題：" + (e?.message || "未知錯誤");
+      warnings.push("清除主試算表分頁時發生問題：" + (e?.message || "未知錯誤"));
     }
+    // 成本試算表：移除企劃分頁＋隱藏明細分頁，總覽改成已封存的固定數字（已先封存到封存試算表）
+    try {
+      await removePlanCostTabsAfterDelete(plan.name);
+    } catch (e: any) {
+      warnings.push("清除成本試算表分頁時發生問題（資料已封存，可手動刪除該分頁）：" + (e?.message || "未知錯誤"));
+    }
+    if (warnings.length) sheetTabDeleteWarning = "企劃與訂單已刪除，但" + warnings.join("；");
   }
 
   syncPlansSheet().catch(() => {});
-  return NextResponse.json({ ok: true, purgedOrderCount, syncWarning: sheetTabDeleteWarning || undefined });
+  return NextResponse.json({ ok: true, purgedOrderCount, archivedTab: archiveResult.archiveTab, syncWarning: sheetTabDeleteWarning || undefined });
 }
