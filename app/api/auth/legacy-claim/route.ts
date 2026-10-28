@@ -6,6 +6,7 @@ import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 import { signMemberSession, memberSessionCookieHeader } from "@/lib/memberAuth";
 import { syncMembersSheet } from "@/lib/sheetsSync";
 import { syncOrderRealtimeToPlanTab, syncOnePlanCostTab } from "@/lib/planSheetSync";
+import { isBlacklisted, BLACKLIST_MESSAGE } from "@/lib/blacklist";
 
 /** 舊會員確認身份後，設定新帳密、正式建立帳號，並把該身份底下的舊訂單改指定成新帳號 */
 export async function POST(req: Request) {
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
 
   const profileUrl = identity.fb_profile_url;
   const profileUrlNorm = normFb(profileUrl);
+  if (await isBlacklisted({ email, profileUrl })) return NextResponse.json({ error: BLACKLIST_MESSAGE }, { status: 403 });
   const { data: existingProfile } = await supabase.from("members").select("id").eq("profile_url_norm", profileUrlNorm).maybeSingle();
   if (existingProfile) {
     return NextResponse.json({ error: "這個個人頁網址已經被註冊過了，如果這是你本人的帳號，請直接登入或使用忘記密碼" }, { status: 409 });

@@ -4,6 +4,7 @@ import { genOrderNo, fmtMoney } from "@/lib/util";
 import { notifyDiscord } from "@/lib/discord";
 import { syncOrderToSheet } from "@/lib/sheetsSync";
 import { getStockUsage, stockKey } from "@/lib/stock";
+import { isBlacklisted, BLACKLIST_MESSAGE } from "@/lib/blacklist";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,6 +28,10 @@ export async function POST(req: Request) {
 
   const { data: member } = await supabase.from("members").select("*").ilike("username", finalUsername).maybeSingle();
   if (!member) return NextResponse.json({ error: "找不到你的會員資料，請重新登入。" }, { status: 400 });
+  // 黑名單：信箱或個人頁網址命中就不能下單（已註冊、之後才被列入的帳號一樣擋得到，但仍可登入瀏覽）
+  if (await isBlacklisted({ email: member.email, profileUrl: member.profile_url })) {
+    return NextResponse.json({ error: BLACKLIST_MESSAGE }, { status: 403 });
+  }
   if (!member.email_verified) {
     return NextResponse.json({ error: "請先驗證信箱後才能下單，可以到「編輯會員資料」重新寄送驗證信。" }, { status: 403 });
   }

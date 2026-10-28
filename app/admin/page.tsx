@@ -9,11 +9,11 @@ type PlanAdmin = {
   promoImages?: string[]; sortOrder?: number;
   hideAfterDays?: number | null; fulfillmentStatus?: string | null;
 };
-type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null; stockLimit: number | null };
+type ProductAdmin = { id: string; planId: string; name: string; style: string; price: number; imageUrl: string | null; stockLimit: number | null; shippingMethod: string };
 
 const emptyCategoryForm = { id: "", name: "", parentId: "" };
 const emptyPlanForm = { id: "", name: "", deadline: "", imageUrl: "", codLimit: "0", allowCodOnRemitLink: false, visibleTo: [] as string[], categoryId: "", promoImages: [] as string[], hideAfterDays: "", fulfillmentStatus: "" };
-const emptyProductForm = { id: "", name: "", style: "", price: "0", imageUrl: "", stockLimit: "" };
+const emptyProductForm = { id: "", name: "", style: "", price: "0", imageUrl: "", stockLimit: "", shippingMethod: "" };
 
 export default function AdminPage() {
   const [username, setUsername] = useState("");
@@ -35,7 +35,7 @@ export default function AdminPage() {
   const [savingAdminPw, setSavingAdminPw] = useState(false);
   const [savingAdminEmail, setSavingAdminEmail] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "products" | "orders" | "members" | "codes" | "legacy" | "announcements">("account");
+  const [activeSection, setActiveSection] = useState<"account" | "categories" | "plans" | "products" | "orders" | "members" | "codes" | "legacy" | "announcements" | "blacklist">("account");
   const categoryFormRef = useRef<HTMLDivElement>(null);
   const planFormRef = useRef<HTMLDivElement>(null);
   const [categoryFilterText, setCategoryFilterText] = useState("");
@@ -62,6 +62,13 @@ export default function AdminPage() {
   const [notifySending, setNotifySending] = useState(false);
   const [notifyResult, setNotifyResult] = useState<any>(null);
 
+  // 黑名單
+  const [blacklistItems, setBlacklistItems] = useState<{ id: string; type: "email" | "fb"; value: string; note: string; createdAt: string }[]>([]);
+  const [blacklistType, setBlacklistType] = useState<"email" | "fb">("email");
+  const [blacklistValue, setBlacklistValue] = useState("");
+  const [blacklistNote, setBlacklistNote] = useState("");
+  const [blacklistMsg, setBlacklistMsg] = useState("");
+
   // 匯出賣貨便
   const [myshipPlan, setMyshipPlan] = useState<PlanAdmin | null>(null);
   const [myshipPreview, setMyshipPreview] = useState<any>(null);
@@ -74,14 +81,14 @@ export default function AdminPage() {
   const [activePlanForProducts, setActivePlanForProducts] = useState<PlanAdmin | null>(null);
   const [products, setProducts] = useState<ProductAdmin[]>([]);
   const [productForm, setProductForm] = useState(emptyProductForm);
-  const [productRows, setProductRows] = useState<{ style: string; price: string; imageUrl: string; stockLimit: string }[]>([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]);
+  const [productRows, setProductRows] = useState<{ style: string; price: string; imageUrl: string; stockLimit: string; shippingMethod: string }[]>([{ style: "", price: "0", imageUrl: "", stockLimit: "", shippingMethod: "" }]);
   const [uploadingRowImg, setUploadingRowImg] = useState<number | null>(null);
   const [productRowImageUrlInputs, setProductRowImageUrlInputs] = useState<Record<number, string>>({});
   const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
   const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [productMsg, setProductMsg] = useState("");
-  const [editedProducts, setEditedProducts] = useState<Record<string, { style: string; price: string; stockLimit: string }>>({});
+  const [editedProducts, setEditedProducts] = useState<Record<string, { style: string; price: string; stockLimit: string; shippingMethod: string }>>({});
   const [savingAllProducts, setSavingAllProducts] = useState(false);
   const [uploadingProductImg, setUploadingProductImg] = useState(false);
 
@@ -208,9 +215,9 @@ export default function AdminPage() {
 
   // 商品清單重新載入時，把表格編輯用的暫存值同步成資料庫最新內容（例如剛開商品管理、或存檔後重新整理清單）
   useEffect(() => {
-    const next: Record<string, { style: string; price: string; stockLimit: string }> = {};
+    const next: Record<string, { style: string; price: string; stockLimit: string; shippingMethod: string }> = {};
     for (const p of products) {
-      next[p.id] = { style: p.style || "", price: String(p.price), stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" };
+      next[p.id] = { style: p.style || "", price: String(p.price), stockLimit: p.stockLimit != null ? String(p.stockLimit) : "", shippingMethod: p.shippingMethod || "" };
     }
     setEditedProducts(next);
   }, [products]);
@@ -237,6 +244,9 @@ export default function AdminPage() {
   useEffect(() => {
     if (unlocked && activeSection === "plans") {
       loadPlans();
+    }
+    if (unlocked && activeSection === "blacklist" && currentRole === "owner") {
+      loadBlacklist();
     }
   }, [unlocked, activeSection]);
 
@@ -570,6 +580,42 @@ export default function AdminPage() {
     setNotifyLoadingRecipients(false);
   }
 
+  async function loadBlacklist() {
+    try {
+      const r = await fetch("/api/admin/blacklist", { cache: "no-store" });
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
+      const d = await r.json();
+      if (r.ok) setBlacklistItems(d.items || []);
+      else setBlacklistMsg(d.error || "載入失敗");
+    } catch {
+      setBlacklistMsg("網路連線失敗");
+    }
+  }
+
+  async function addBlacklist() {
+    if (!blacklistValue.trim()) return setBlacklistMsg("請填寫要加入黑名單的內容");
+    setBlacklistMsg("");
+    try {
+      await callJson("/api/admin/blacklist", "POST", { type: blacklistType, value: blacklistValue.trim(), note: blacklistNote.trim() });
+      setBlacklistValue("");
+      setBlacklistNote("");
+      setBlacklistMsg("已加入黑名單。");
+      loadBlacklist();
+    } catch (e: any) {
+      setBlacklistMsg("失敗：" + e.message);
+    }
+  }
+
+  async function removeBlacklist(id: string) {
+    if (!confirm("確定要把這筆從黑名單移除嗎？移除後這個信箱／個人頁就可以正常註冊、下單了。")) return;
+    try {
+      await callJson("/api/admin/blacklist", "DELETE", { id });
+      loadBlacklist();
+    } catch (e: any) {
+      setBlacklistMsg("失敗：" + e.message);
+    }
+  }
+
   async function openMyshipPanel(p: PlanAdmin) {
     setMyshipPlan(p);
     setMyshipPreview(null);
@@ -683,19 +729,19 @@ export default function AdminPage() {
   async function openProductManager(p: PlanAdmin) {
     setActivePlanForProducts(p);
     setProductForm(emptyProductForm);
-    setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]);
+    setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "", shippingMethod: "" }]);
     setActiveSection("products");
     await loadProducts(p.id);
   }
 
-  function updateEditedProduct(id: string, field: "style" | "price" | "stockLimit", value: string) {
+  function updateEditedProduct(id: string, field: "style" | "price" | "stockLimit" | "shippingMethod", value: string) {
     setEditedProducts((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
   }
 
   function productRowChanged(p: ProductAdmin): boolean {
     const e = editedProducts[p.id];
     if (!e) return false;
-    return e.style !== (p.style || "") || e.price !== String(p.price) || e.stockLimit !== (p.stockLimit != null ? String(p.stockLimit) : "");
+    return e.style !== (p.style || "") || e.price !== String(p.price) || e.stockLimit !== (p.stockLimit != null ? String(p.stockLimit) : "") || e.shippingMethod !== (p.shippingMethod || "");
   }
 
   async function saveAllProductEdits() {
@@ -715,6 +761,7 @@ export default function AdminPage() {
           price: e.price,
           stockLimit: e.stockLimit,
           imageUrl: p.imageUrl,
+          shippingMethod: e.shippingMethod,
         });
       }
       setProductMsg(`已儲存 ${changed.length} 筆修改`);
@@ -727,11 +774,11 @@ export default function AdminPage() {
   }
 
   function editProduct(p: ProductAdmin) {
-    setProductForm({ id: p.id, name: p.name, style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "", stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" });
+    setProductForm({ id: p.id, name: p.name, style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "", stockLimit: p.stockLimit != null ? String(p.stockLimit) : "", shippingMethod: p.shippingMethod || "" });
   }
 
   function addProductRow() {
-    setProductRows((rows) => [...rows, { style: "", price: rows[rows.length - 1]?.price || "0", imageUrl: "", stockLimit: "" }]);
+    setProductRows((rows) => [...rows, { style: "", price: rows[rows.length - 1]?.price || "0", imageUrl: "", stockLimit: "", shippingMethod: rows[rows.length - 1]?.shippingMethod || "" }]);
   }
   function removeProductRow(idx: number) {
     setProductRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
@@ -741,7 +788,7 @@ export default function AdminPage() {
       return next;
     });
   }
-  function updateProductRow(idx: number, field: "style" | "price" | "imageUrl" | "stockLimit", value: string) {
+  function updateProductRow(idx: number, field: "style" | "price" | "imageUrl" | "stockLimit" | "shippingMethod", value: string) {
     setProductRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   }
 
@@ -781,6 +828,7 @@ export default function AdminPage() {
           price: productForm.price,
           imageUrl: productForm.imageUrl || null,
           stockLimit: productForm.stockLimit,
+          shippingMethod: productForm.shippingMethod,
         });
         setProductForm(emptyProductForm);
         setProductMsg("已儲存");
@@ -795,11 +843,12 @@ export default function AdminPage() {
             price: row.price || "0",
             imageUrl: row.imageUrl || null,
             stockLimit: row.stockLimit,
+            shippingMethod: row.shippingMethod,
           });
         }
         // 商品名稱保留，方便接著建下一批款式；款式列表清空回一列
         setProductForm((f) => ({ ...f, style: "", price: "0" }));
-        setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]);
+        setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "", shippingMethod: "" }]);
         setProductMsg(`已新增 ${rows.length} 筆`);
       }
       await loadProducts(activePlanForProducts.id);
@@ -1465,6 +1514,7 @@ export default function AdminPage() {
               <div className={`account-nav-item ${activeSection === "codes" ? "active" : ""}`} onClick={() => setActiveSection("codes")}>邀請碼管理</div>
               <div className={`account-nav-item ${activeSection === "legacy" ? "active" : ""}`} onClick={() => setActiveSection("legacy")}>舊會員確認</div>
               <div className={`account-nav-item ${activeSection === "announcements" ? "active" : ""}`} onClick={() => setActiveSection("announcements")}>公告管理</div>
+              <div className={`account-nav-item ${activeSection === "blacklist" ? "active" : ""}`} onClick={() => setActiveSection("blacklist")}>黑名單</div>
             </>
           )}
         </aside>
@@ -1861,7 +1911,7 @@ export default function AdminPage() {
               <div key={name} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#33415C", padding: "6px 0" }}>{name}</div>
                 {styles.map((p) => {
-                  const edited = editedProducts[p.id] || { style: p.style || "", price: String(p.price), stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" };
+                  const edited = editedProducts[p.id] || { style: p.style || "", price: String(p.price), stockLimit: p.stockLimit != null ? String(p.stockLimit) : "", shippingMethod: p.shippingMethod || "" };
                   const changed = productRowChanged(p);
                   return (
                     <div
@@ -1896,6 +1946,15 @@ export default function AdminPage() {
                         placeholder="限量"
                         style={{ flex: "1 1 60px", minWidth: 0, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 6, fontSize: 13 }}
                       />
+                      <select
+                        value={edited.shippingMethod}
+                        onChange={(e) => updateEditedProduct(p.id, "shippingMethod", e.target.value)}
+                        style={{ flex: "1 1 80px", minWidth: 0, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 6, fontSize: 13 }}
+                      >
+                        <option value="">不分運送</option>
+                        <option value="空運">空運</option>
+                        <option value="海運">海運</option>
+                      </select>
                       <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                         <button className="btn small secondary" onClick={() => editProduct(p)} title="改商品名稱或圖片">改名/圖片</button>
                         <button className="btn small danger" onClick={() => deleteProduct(p.id)}>刪除</button>
@@ -1949,7 +2008,7 @@ export default function AdminPage() {
                     if (!sourceName) return;
                     const rows = products
                       .filter((p) => p.name === sourceName)
-                      .map((p) => ({ style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "", stockLimit: p.stockLimit != null ? String(p.stockLimit) : "" }));
+                      .map((p) => ({ style: p.style || "", price: String(p.price), imageUrl: p.imageUrl || "", stockLimit: p.stockLimit != null ? String(p.stockLimit) : "", shippingMethod: p.shippingMethod || "" }));
                     if (rows.length > 0) setProductRows(rows);
                     e.target.value = "";
                   }}
@@ -1976,6 +2035,14 @@ export default function AdminPage() {
               <div className="id-row">
                 <span className="id-label">限量</span>
                 <input type="number" min={0} value={productForm.stockLimit} onChange={(e) => setProductForm((f) => ({ ...f, stockLimit: e.target.value }))} placeholder="留空＝不限量" />
+              </div>
+              <div className="id-row">
+                <span className="id-label">運送方式</span>
+                <select value={productForm.shippingMethod} onChange={(e) => setProductForm((f) => ({ ...f, shippingMethod: e.target.value }))}>
+                  <option value="">不分（沿用單一運費計算）</option>
+                  <option value="空運">空運</option>
+                  <option value="海運">海運</option>
+                </select>
               </div>
               <div className="id-row">
                 <span className="id-label">商品圖片</span>
@@ -2020,6 +2087,15 @@ export default function AdminPage() {
                           placeholder="限量（留空不限）"
                           style={{ flex: "1 1 90px", minWidth: 0 }}
                         />
+                        <select
+                          value={row.shippingMethod}
+                          onChange={(e) => updateProductRow(i, "shippingMethod", e.target.value)}
+                          style={{ flex: "1 1 100px", minWidth: 0 }}
+                        >
+                          <option value="">不分運送</option>
+                          <option value="空運">空運</option>
+                          <option value="海運">海運</option>
+                        </select>
                       </div>
                       <div className="id-row" style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                         <input type="file" accept="image/*" onChange={(e) => handleProductRowImageUpload(i, e)} style={{ fontSize: 12 }} />
@@ -2048,7 +2124,7 @@ export default function AdminPage() {
 
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" onClick={saveProduct}>{productForm.id ? "儲存修改" : "新增商品"}</button>
-            {productForm.id && <button className="btn secondary" onClick={() => { setProductForm(emptyProductForm); setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "" }]); }}>取消編輯</button>}
+            {productForm.id && <button className="btn secondary" onClick={() => { setProductForm(emptyProductForm); setProductRows([{ style: "", price: "0", imageUrl: "", stockLimit: "", shippingMethod: "" }]); }}>取消編輯</button>}
             <button className="btn secondary" onClick={() => { setActivePlanForProducts(null); setActiveSection("plans"); }}>關閉商品管理</button>
           </div>
           <div style={{ fontSize: 13, marginTop: 6 }}>{productMsg}</div>
@@ -2566,6 +2642,50 @@ export default function AdminPage() {
           )}
         </div>
             </>
+          )}
+
+          {activeSection === "blacklist" && currentRole === "owner" && (
+            <div className="auth-card">
+              <h3>黑名單</h3>
+              <p style={{ fontSize: 12, color: "#8A8779", margin: 0 }}>
+                列入黑名單的<strong>信箱</strong>或<strong>FB 個人頁網址</strong>，不能註冊帳號、也不能下單。
+                已經註冊的帳號被列入後，仍可登入瀏覽、看歷史訂單，但下單會被擋下來。
+                被擋的人只會看到「此帳號無法使用本服務，如有疑問請聯絡管理者」，不會知道是黑名單。
+              </p>
+              <div className="id-row" style={{ marginTop: 10 }}>
+                <span className="id-label">類型</span>
+                <select value={blacklistType} onChange={(e) => setBlacklistType(e.target.value as "email" | "fb")}>
+                  <option value="email">信箱</option>
+                  <option value="fb">FB 個人頁網址</option>
+                </select>
+              </div>
+              <div className="id-row">
+                <span className="id-label">內容</span>
+                <input type="text" value={blacklistValue} onChange={(e) => setBlacklistValue(e.target.value)} placeholder={blacklistType === "email" ? "例如：abc@gmail.com" : "例如：https://www.facebook.com/xxx"} />
+              </div>
+              <div className="id-row">
+                <span className="id-label">備註</span>
+                <input type="text" value={blacklistNote} onChange={(e) => setBlacklistNote(e.target.value)} placeholder="選填，只有管理者看得到（例如：惡意棄單）" />
+              </div>
+              <button className="btn small" onClick={addBlacklist} style={{ marginTop: 8 }}>加入黑名單</button>
+              <div style={{ fontSize: 13, margin: "8px 0" }}>{blacklistMsg}</div>
+
+              <div style={{ borderTop: "1px solid #EDE9DC", paddingTop: 10 }}>
+                {blacklistItems.length === 0 && <div style={{ fontSize: 13, color: "#8A8779" }}>目前黑名單是空的</div>}
+                {blacklistItems.map((b) => (
+                  <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px dashed #EDE9DC" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, wordBreak: "break-all" }}>
+                        <span style={{ fontSize: 12, color: "#8A8779", marginRight: 6 }}>{b.type === "email" ? "信箱" : "FB"}</span>
+                        {b.value}
+                      </div>
+                      {b.note && <div style={{ fontSize: 12, color: "#8A8779" }}>備註：{b.note}</div>}
+                    </div>
+                    <button className="btn small danger" onClick={() => removeBlacklist(b.id)} style={{ flexShrink: 0 }}>移除</button>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {activeSection === "announcements" && currentRole === "owner" && (

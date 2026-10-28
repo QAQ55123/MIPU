@@ -7,7 +7,7 @@ import {
 } from "./googleSheets";
 
 const ORDER_HEADER = ["訂單編號", "來源", "暱稱", "FB個人網址", "商品名稱", "款式", "數量", "單價", "小計", "訂單時間", "交易方式", "付款狀態"];
-const CATALOG_HEADER = ["商品名稱", "款式", "單價", "圖片"];
+const CATALOG_HEADER = ["商品名稱", "款式", "單價", "圖片", "運送方式"];
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,12 +40,9 @@ type PlanRow = { id: string; name: string; deadline?: string | null };
 async function getAllPlans(): Promise<PlanRow[]> {
   const supabase = getSupabaseAdmin();
   const { data } = await supabase.from("plans").select("id, name, sort_order, deadline");
-  // 拖曳排序在後台是「同一個狀態分組（進行中／常駐／已截止）內」各自獨立排序的，
-  // 這裡的排序要比照後台畫面的分組邏輯，先分組、組內再依拖曳順序排，
-  // 不然兩個不同分組的企劃如果 sort_order 剛好一樣，順序會變得不可預期、跟後台實際看到的對不起來。
   function statusRank(p: { deadline: string | null }) {
-    if (!p.deadline) return 1; // 常駐
-    return new Date(p.deadline).getTime() < Date.now() ? 2 : 0; // 已截止 : 進行中
+    if (!p.deadline) return 1;
+    return new Date(p.deadline).getTime() < Date.now() ? 2 : 0;
   }
   const rows = (data || []) as any[];
   rows.sort((a, b) => {
@@ -78,7 +75,7 @@ async function buildOrderTabRequests(sheets: SheetsClient, mainSheetId: string, 
 
   const [products, orders] = await Promise.all([getPlanProducts(planId), getPlanOrders(planId)]);
 
-  const catalogRows = products.map((p: any) => [p.name, p.style || "", Number(p.price) || 0, p.image_url || ""]);
+  const catalogRows = products.map((p: any) => [p.name, p.style || "", Number(p.price) || 0, p.image_url || "", p.shipping_method || ""]);
   const catalogBlock = [CATALOG_HEADER, ...catalogRows];
 
   const orderRows: (string | number)[][] = [];
@@ -145,7 +142,7 @@ export async function syncOrderRealtimeToPlanTab(planId: string, planName: strin
 }
 
 type Aggregated = {
-  products: { name: string; style: string; price: number }[];
+  products: { name: string; style: string; price: number; shippingMethod: string }[];
   qty: Record<string, number>;
   customers: { display: string; items: Record<string, number>; paid: number }[];
 };
@@ -157,7 +154,7 @@ function aggregateFromValues(values: any[][]): Aggregated {
     const row = values[i] || [];
     if (String(row[0] || "").trim() === ORDER_HEADER[0]) { headerRow = i; break; }
     if (i > 0 && String(row[0] || "").trim()) {
-      products.push({ name: String(row[0]).trim(), style: String(row[1] || "").trim(), price: Number(row[2]) || 0 });
+      products.push({ name: String(row[0]).trim(), style: String(row[1] || "").trim(), price: Number(row[2]) || 0, shippingMethod: String(row[4] || "").trim() });
     }
   }
 
@@ -196,7 +193,13 @@ async function aggregatePlanFromSheet(sheets: SheetsClient, id: string, tabName:
   return aggregateFromValues(values);
 }
 
-const LABELS = ["商品", "款式", "售價", "進貨單價", "單件重量(g)", "數量", "小計", "", "【運費計算】", "包裹總重(g)", "每公斤價格", "內陸運費", "商品總重(g)", "包材重量(g)", "每g分攤比例", "【總覽】", "總收入", "總進貨成本", "其他", "淨利潤", "【客戶應收運費】", "客戶"];
+const LABELS = [
+  "商品", "款式", "運送方式", "售價", "進貨單價", "單件重量(g)", "數量", "小計", "",
+  "【空運運費計算】", "【海運運費計算】", "包裹總重(g)", "每公斤價格", "商品總重(g)", "包材重量(g)", "每g分攤比例",
+  "內陸運費",
+  "【總覽】", "總收入", "總進貨成本", "其他", "淨利潤",
+  "【客戶應收運費】", "客戶",
+];
 
 async function buildCostTabRequests(
   sheets: SheetsClient,
@@ -206,59 +209,76 @@ async function buildCostTabRequests(
   oldValues: any[][],
   oldFormulas: any[][],
   cache: SheetMetaCache
-): Promise<{ requests: BatchRequest[]; custStartRow: number; custCount: number }> {
+): Promise<{ requests: BatchRequest[]; custStartRow: number; custCount: number; incomeRow: number; costRow: number; profitRow: number }> {
   const sheetId = await ensureSheetExistsCached(sheets, costId, planTab, cache);
   const products = agg.products;
   const N = products.length;
 
   const manual = new Map<string, { buy: any; weightWrite: any }>();
-  let pkgTotal: any = "", kgPrice: any = "", landFee: any = "", otherVal: any = "";
+  let pkgTotalAir: any = "", kgPriceAir: any = "";
+  let pkgTotalSea: any = "", kgPriceSea: any = "";
+  let landFee: any = "", otherVal: any = "";
+  let seenAirBlock = false, seenSeaBlock = false;
   oldValues.forEach((v, i) => {
     const a = String(v[0] || "").trim();
     const cell = (c: number) => (oldFormulas[i]?.[c] ? oldFormulas[i][c] : v[c]);
-    if (a === "包裹總重(g)") { pkgTotal = cell(2); return; }
-    if (a === "每公斤價格") { kgPrice = cell(2); return; }
+    if (a === "【空運運費計算】") { seenAirBlock = true; seenSeaBlock = false; return; }
+    if (a === "【海運運費計算】") { seenSeaBlock = true; seenAirBlock = false; return; }
+    if (a === "包裹總重(g)") { if (seenAirBlock) pkgTotalAir = cell(2); else if (seenSeaBlock) pkgTotalSea = cell(2); return; }
+    if (a === "每公斤價格") { if (seenAirBlock) kgPriceAir = cell(2); else if (seenSeaBlock) kgPriceSea = cell(2); return; }
     if (a === "內陸運費") { landFee = cell(2); return; }
     if (a === "其他") { otherVal = cell(2); return; }
     if (a && LABELS.indexOf(a) === -1) {
-      manual.set(`${a}|${String(v[1] || "").trim()}`, { buy: cell(3), weightWrite: cell(4) });
+      manual.set(`${a}|${String(v[1] || "").trim()}`, { buy: cell(4), weightWrite: cell(5) });
     }
   });
 
   const data: (string | number)[][] = [];
-  data.push(["商品", "款式", "售價", "進貨單價", "單件重量(g)", "數量", "小計"]);
+  data.push(["商品", "款式", "運送方式", "售價", "進貨單價", "單件重量(g)", "數量", "小計"]);
   products.forEach((p, i) => {
     const row = 2 + i;
     const m = manual.get(`${p.name}|${p.style}`) || ({} as any);
     const qty = agg.qty[`${p.name}|${p.style}`] || 0;
     data.push([
-      p.name, p.style, p.price,
+      p.name, p.style, p.shippingMethod || "", p.price,
       m.buy !== undefined && m.buy !== "" ? m.buy : "",
       m.weightWrite !== undefined && m.weightWrite !== "" ? m.weightWrite : "",
       qty,
-      `=IF(D${row}="","",D${row}*F${row})`,
+      `=IF(E${row}="","",E${row}*G${row})`,
     ]);
   });
   const lastP = N + 1;
-  data.push(["", "", "", "", "", "", ""]);
+  const pad8 = () => ["", "", "", "", "", "", "", ""];
+  data.push(pad8());
 
-  const pkgRow = N + 4, prodWRow = N + 7, pkgMatRow = N + 8;
-  data.push(["【運費計算】", "", "", "", "", "", ""]);
-  data.push(["包裹總重(g)", "", pkgTotal, "", "", "", ""]);
-  data.push(["每公斤價格", "", kgPrice, "", "", "", ""]);
-  data.push(["內陸運費", "", landFee, "", "", "", ""]);
-  data.push(["商品總重(g)", "", `=SUMPRODUCT((E2:E${lastP}<>"")*E2:E${lastP}*F2:F${lastP})`, "", "", "", ""]);
-  data.push(["包材重量(g)", "", `=IF(C${pkgRow}="","",C${pkgRow}-C${prodWRow})`, "", "", "", ""]);
-  data.push(["每g分攤比例", "", `=IF(C${prodWRow}=0,"",C${pkgMatRow}/C${prodWRow})`, "", "", "", ""]);
-  data.push(["", "", "", "", "", "", ""]);
+  const airPkgRow = N + 4, airKgRow = N + 5, airProdWRow = N + 6, airPkgMatRow = N + 7, airRatioRow = N + 8;
+  data.push(["【空運運費計算】", "", "", "", "", "", "", ""]);
+  data.push(["包裹總重(g)", "", pkgTotalAir, "", "", "", "", ""]);
+  data.push(["每公斤價格", "", kgPriceAir, "", "", "", "", ""]);
+  data.push(["空運商品總重(g)", "", `=SUMPRODUCT((C2:C${lastP}="空運")*F2:F${lastP}*G2:G${lastP})`, "", "", "", "", ""]);
+  data.push(["包材重量(g)", "", `=IF(C${airPkgRow}="","",C${airPkgRow}-C${airProdWRow})`, "", "", "", "", ""]);
+  data.push(["每g分攤比例", "", `=IF(C${airProdWRow}=0,"",C${airPkgMatRow}/C${airProdWRow})`, "", "", "", "", ""]);
+  data.push(pad8());
 
-  const incomeRow = N + 12, costRow = N + 13, otherRow = N + 14;
-  const kgRow = N + 5, ratioRow = N + 9, landRow = N + 6;
-  data.push(["【總覽】", "", "", "", "", "", ""]);
-  data.push(["總收入", "", `=SUMPRODUCT((C2:C${lastP}<>"")*C2:C${lastP}*F2:F${lastP})`, "", "", "", ""]);
-  data.push(["總進貨成本", "", `=SUMPRODUCT((D2:D${lastP}<>"")*D2:D${lastP}*F2:F${lastP})`, "", "", "", ""]);
-  data.push(["其他", "", otherVal, "", "", "", ""]);
-  data.push(["淨利潤", "", `=IF(C${incomeRow}="","",C${incomeRow}-C${costRow}+IF(C${otherRow}="",0,C${otherRow}))`, "", "", "", ""]);
+  const seaPkgRow = N + 11, seaKgRow = N + 12, seaProdWRow = N + 13, seaPkgMatRow = N + 14, seaRatioRow = N + 15;
+  data.push(["【海運運費計算】", "", "", "", "", "", "", ""]);
+  data.push(["包裹總重(g)", "", pkgTotalSea, "", "", "", "", ""]);
+  data.push(["每公斤價格", "", kgPriceSea, "", "", "", "", ""]);
+  data.push(["海運商品總重(g)", "", `=SUMPRODUCT((C2:C${lastP}="海運")*F2:F${lastP}*G2:G${lastP})`, "", "", "", "", ""]);
+  data.push(["包材重量(g)", "", `=IF(C${seaPkgRow}="","",C${seaPkgRow}-C${seaProdWRow})`, "", "", "", "", ""]);
+  data.push(["每g分攤比例", "", `=IF(C${seaProdWRow}=0,"",C${seaPkgMatRow}/C${seaProdWRow})`, "", "", "", "", ""]);
+  data.push(pad8());
+
+  const landRow = N + 17;
+  data.push(["內陸運費", "", landFee, "", "", "", "", ""]);
+  data.push(pad8());
+
+  const incomeRow = N + 20, costRow = N + 21, otherRow = N + 22, profitRow = N + 23;
+  data.push(["【總覽】", "", "", "", "", "", "", ""]);
+  data.push(["總收入", "", `=SUMPRODUCT((D2:D${lastP}<>"")*D2:D${lastP}*G2:G${lastP})`, "", "", "", "", ""]);
+  data.push(["總進貨成本", "", `=SUMPRODUCT((E2:E${lastP}<>"")*E2:E${lastP}*G2:G${lastP})`, "", "", "", "", ""]);
+  data.push(["其他", "", otherVal, "", "", "", "", ""]);
+  data.push(["淨利潤", "", `=IF(C${incomeRow}="","",C${incomeRow}-C${costRow}+IF(C${otherRow}="",0,C${otherRow}))`, "", "", "", "", ""]);
 
   const customers = (agg.customers || []).slice().sort((a, b) => (a.display < b.display ? -1 : 1));
   const nCust = customers.length;
@@ -272,29 +292,33 @@ async function buildCostTabRequests(
     ddata.push(rowArr);
   });
 
-  data.push(["", "", "", "", "", "", ""]);
-  data.push(["【客戶應收運費】", "", "", "", "", "", ""]);
-  data.push(["客戶", "應收運費", "商品小計", "應收總額", "已收", "尚欠", ""]);
-  const custStartRow = N + 19;
+  data.push(pad8());
+  data.push(["【客戶應收運費】", "", "", "", "", "", "", ""]);
+  data.push(["客戶", "應收運費", "商品小計", "應收總額", "已收", "尚欠", "", ""]);
+  const custStartRow = N + 27;
   customers.forEach((c, i) => {
     const row = custStartRow + i;
     const col = columnToLetter(3 + i);
-    const wSum = `SUMPRODUCT($E$2:$E$${lastP},${detailRef}${col}2:${col}${lastP})`;
-    const ratioMul = `(1+IF($C$${ratioRow}="",0,$C$${ratioRow}))`;
+    const wSumAir = `SUMPRODUCT(($C$2:$C$${lastP}="空運")*$F$2:$F$${lastP},${detailRef}${col}2:${col}${lastP})`;
+    const wSumSea = `SUMPRODUCT(($C$2:$C$${lastP}="海運")*$F$2:$F$${lastP},${detailRef}${col}2:${col}${lastP})`;
+    const ratioMulAir = `(1+IF($C$${airRatioRow}="",0,$C$${airRatioRow}))`;
+    const ratioMulSea = `(1+IF($C$${seaRatioRow}="",0,$C$${seaRatioRow}))`;
     const landShare = `IF($C$${landRow}="",0,$C$${landRow}/${nCust})`;
-    const feeF = `=CEILING(IF($C$${kgRow}="",0,(${wSum})*${ratioMul}*$C$${kgRow}/1000)+${landShare},1)`;
-    const subtotalF = `=SUMPRODUCT($C$2:$C$${lastP},${detailRef}${col}2:${col}${lastP})`;
-    data.push([c.display, feeF, subtotalF, `=B${row}+C${row}`, Number(c.paid) || 0, `=D${row}-E${row}`, ""]);
+    const airFee = `IF($C$${airKgRow}="",0,(${wSumAir})*${ratioMulAir}*$C$${airKgRow}/1000)`;
+    const seaFee = `IF($C$${seaKgRow}="",0,(${wSumSea})*${ratioMulSea}*$C$${seaKgRow}/1000)`;
+    const feeF = `=CEILING(${airFee}+${seaFee}+${landShare},1)`;
+    const subtotalF = `=SUMPRODUCT($D$2:$D$${lastP},${detailRef}${col}2:${col}${lastP})`;
+    data.push([c.display, feeF, subtotalF, `=B${row}+C${row}`, Number(c.paid) || 0, `=D${row}-E${row}`, "", ""]);
   });
 
-  const detailColCount = Math.max(60, 2 + customers.length + 10); // 商品+款式 兩固定欄，加每位客戶各一欄，多留寬一點的緩衝，避免之後人數變動又要縮小分頁
+  const detailColCount = Math.max(60, 2 + customers.length + 10);
 
   return {
     requests: [
-      buildClearRequest(sheetId, 100000, 7),
+      buildClearRequest(sheetId, 100000, 8),
       buildWriteRequest(sheetId, 0, 0, data),
-      buildBoldRangeRequest(sheetId, 0, 1, 0, 7),
-      buildBoldRangeRequest(sheetId, N + 16, N + 18, 0, 7),
+      buildBoldRangeRequest(sheetId, 0, 1, 0, 8),
+      buildBoldRangeRequest(sheetId, N + 24, N + 26, 0, 8),
       buildEnsureColumnCountRequest(detailSheetId, detailColCount),
       buildClearRequest(detailSheetId, 100000, detailColCount),
       buildWriteRequest(detailSheetId, 0, 0, ddata),
@@ -302,6 +326,9 @@ async function buildCostTabRequests(
     ],
     custStartRow,
     custCount: customers.length,
+    incomeRow,
+    costRow,
+    profitRow,
   };
 }
 
@@ -328,10 +355,10 @@ function buildCostSummaryRequests(
   ];
   if (n > 0) {
     const first = 2, last = 1 + n;
-    const totalRow = n + 3; // 中間空一列，合計往下移一列
-    data.push(["", "", "", "", "", "", ""]); // 空白分隔列
+    const totalRow = n + 3;
+    data.push(["", "", "", "", "", "", ""]);
     data.push(["合計", `=SUM(B${first}:B${last})`, `=SUM(C${first}:C${last})`, `=SUM(D${first}:D${last})`, `=SUM(E${first}:E${last})`, `=SUM(F${first}:F${last})`, `=IF(B${totalRow}=0,"",D${totalRow}/B${totalRow})`]);
-    requests[1] = buildWriteRequest(sheetId, 0, 0, data); // 重新組含空白列+合計的完整內容
+    requests[1] = buildWriteRequest(sheetId, 0, 0, data);
     requests.push(buildBoldRangeRequest(sheetId, totalRow - 1, totalRow, 0, 7));
     requests.push(buildNumberFormatRequest(sheetId, totalRow - 1, totalRow, 6, 7, "0.0%"));
   }
@@ -347,19 +374,12 @@ export async function syncOnePlanCostTab(planId: string, planName: string) {
     if (agg.products.length === 0) return;
 
     const cache: SheetMetaCache = new Map();
-    const { values: oldValues, formulas: oldFormulas } = await getValuesAndFormulas(sheets, costId, `${tabName}!A1:G100000`);
-    const { requests: costRequests, custStartRow, custCount } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
+    const { values: oldValues, formulas: oldFormulas } = await getValuesAndFormulas(sheets, costId, `${tabName}!A1:H100000`);
+    const { requests: costRequests, custStartRow, custCount, incomeRow, costRow, profitRow } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
 
     const summarySheetId = await ensureSheetExistsCached(sheets, costId, "總覽", cache, 0);
     const { values, formulas } = await getValuesAndFormulas(sheets, costId, `總覽!A1:G100000`);
-    const N = agg.products.length;
-    const incomeRow = N + 12, costRow = N + 13, profitRow = N + 15;
 
-    // 其他企劃那幾列的內容照抄（要抄「公式」不是抄計算後的值，不然其他企劃的數字會被寫死、不再跟著資料庫變動）；
-    // 只有自己這一列要用剛剛算好的最新資料取代掉（找不到就加在最後面）。
-    // 注意：B/C/D/E/F 欄的公式是參照「別的分頁」，複製過來不會受列位置影響，可以放心照抄；
-    // 但 G 欄（淨利潤率）是參照「自己這一列」的 B、D 欄，如果列的位置跟之前不一樣（例如企劃順序變動），
-    // 照抄舊公式會抓錯列，所以 G 欄一定要依最終實際的列位置重新產生，不能照抄。
     const otherRows = values
       .slice(1)
       .map((v, i) => {
@@ -421,7 +441,7 @@ export async function syncCostWorkbook() {
   const costMeta = cache.get(costId);
   const costTabNames = plans.map((p) => safeTabName(p.name));
   const existingCostTabs = new Set(costTabNames.filter((t) => costMeta?.has(t)));
-  const costRanges = costTabNames.filter((t) => existingCostTabs.has(t)).map((t) => `${t}!A1:G100000`);
+  const costRanges = costTabNames.filter((t) => existingCostTabs.has(t)).map((t) => `${t}!A1:H100000`);
   const [costValuesMap, costFormulasMap] = costRanges.length > 0
     ? await Promise.all([
         batchGetValues(sheets, costId, costRanges),
@@ -440,12 +460,11 @@ export async function syncCostWorkbook() {
       const agg = aggregateFromValues(mainValues);
       if (agg.products.length === 0) continue;
 
-      const oldValues = costValuesMap[`${tabName}!A1:G100000`] || [];
-      const oldFormulas = costFormulasMap[`${tabName}!A1:G100000`] || [];
-      const { requests, custStartRow, custCount } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
+      const oldValues = costValuesMap[`${tabName}!A1:H100000`] || [];
+      const oldFormulas = costFormulasMap[`${tabName}!A1:H100000`] || [];
+      const { requests, custStartRow, custCount, incomeRow, costRow, profitRow } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
       allRequests.push(...requests);
-      const N = agg.products.length;
-      summaryRows.push({ name: p.name, tab: tabName, incomeRow: N + 12, costRow: N + 13, profitRow: N + 15, custStartRow, custCount });
+      summaryRows.push({ name: p.name, tab: tabName, incomeRow, costRow, profitRow, custStartRow, custCount });
     } catch (e: any) {
       failedPlans.push(`${p.name}：${e?.message || "未知錯誤"}`);
     }

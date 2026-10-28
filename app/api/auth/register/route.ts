@@ -5,6 +5,7 @@ import { sendEmail, verifyEmailContent } from "@/lib/resend";
 import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 import { signMemberSession, memberSessionCookieHeader } from "@/lib/memberAuth";
 import { syncMembersSheet } from "@/lib/sheetsSync";
+import { isBlacklisted, BLACKLIST_MESSAGE } from "@/lib/blacklist";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -24,6 +25,8 @@ export async function POST(req: Request) {
   const profileUrlNorm = normFb(profileUrl);
 
   const supabase = getSupabaseAdmin();
+
+  if (await isBlacklisted({ email, profileUrl })) return NextResponse.json({ error: BLACKLIST_MESSAGE }, { status: 403 });
 
   const { data: existingUsername } = await supabase.from("members").select("id").ilike("username", username).maybeSingle();
   if (existingUsername) return NextResponse.json({ error: "這個帳號已經被註冊了" }, { status: 409 });

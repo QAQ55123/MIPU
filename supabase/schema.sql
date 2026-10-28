@@ -78,6 +78,7 @@ create table if not exists products (
   price         numeric not null default 0,
   image_url     text,
   stock_limit   integer,          -- 這個款式的限量，留空＝不限量
+  shipping_method text,           -- 空運／海運／留空（不分運送方式）
   sort_order    int default 0
 );
 
@@ -209,3 +210,14 @@ create table if not exists site_settings (
   value       text,
   updated_at  timestamptz not null default now()
 );
+
+-- 黑名單：列入的信箱／FB個人頁網址不能註冊、不能下單
+create table if not exists blacklist (
+  id          uuid primary key default gen_random_uuid(),
+  type        text not null check (type in ('email', 'fb')),
+  value       text not null,
+  value_norm  text not null,
+  note        text,
+  created_at  timestamptz not null default now()
+);
+create unique index if not exists idx_blacklist_type_norm on blacklist (type, value_norm);

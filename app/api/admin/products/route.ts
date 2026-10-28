@@ -36,6 +36,7 @@ export async function GET(req: Request) {
       price: Number(p.price),
       imageUrl: p.image_url,
       stockLimit: p.stock_limit,
+      shippingMethod: p.shipping_method || "",
     })),
   });
 }
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
       price: Number(body.price) || 0,
       image_url: body.imageUrl || null,
       stock_limit: body.stockLimit === "" || body.stockLimit == null ? null : Number(body.stockLimit),
+      shipping_method: body.shippingMethod || null,
       sort_order: nextSortOrder,
     })
     .select()
@@ -98,6 +100,7 @@ export async function PUT(req: Request) {
       price: Number(body.price) || 0,
       image_url: body.imageUrl || null,
       stock_limit: body.stockLimit === "" || body.stockLimit == null ? null : Number(body.stockLimit),
+      shipping_method: body.shippingMethod || null,
     })
     .eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
