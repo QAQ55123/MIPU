@@ -6,6 +6,7 @@ import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 import { signMemberSession, memberSessionCookieHeader } from "@/lib/memberAuth";
 import { syncMembersSheet } from "@/lib/sheetsSync";
 import { isBlacklisted, BLACKLIST_MESSAGE } from "@/lib/blacklist";
+import { escapeLike, validateDisplayName, isDisplayNameTaken, DISPLAY_NAME_TAKEN_MESSAGE } from "@/lib/memberDisplayName";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -16,6 +17,9 @@ export async function POST(req: Request) {
   const email = String(body.email || "").trim().toLowerCase();
 
   if (username.length < 1) return NextResponse.json({ error: "請輸入帳號" }, { status: 400 });
+  const dn = validateDisplayName(body.displayName);
+  if (dn.error !== undefined) return NextResponse.json({ error: dn.error }, { status: 400 });
+  const displayName = dn.name;
   if (password.length < 6) return NextResponse.json({ error: "密碼至少要 6 個字" }, { status: 400 });
   if (password !== confirmPassword) return NextResponse.json({ error: "兩次輸入的密碼不一樣" }, { status: 400 });
   if (!profileUrlRaw) return NextResponse.json({ error: "請填寫個人頁網址" }, { status: 400 });
@@ -28,8 +32,10 @@ export async function POST(req: Request) {
 
   if (await isBlacklisted({ email, profileUrl })) return NextResponse.json({ error: BLACKLIST_MESSAGE }, { status: 403 });
 
-  const { data: existingUsername } = await supabase.from("members").select("id").ilike("username", username).maybeSingle();
+  const { data: existingUsername } = await supabase.from("members").select("id").ilike("username", escapeLike(username)).maybeSingle();
   if (existingUsername) return NextResponse.json({ error: "這個帳號已經被註冊了" }, { status: 409 });
+
+  if (await isDisplayNameTaken(displayName)) return NextResponse.json({ error: DISPLAY_NAME_TAKEN_MESSAGE }, { status: 409 });
 
   const { data: existingEmail } = await supabase.from("members").select("id").ilike("email", email).maybeSingle();
   if (existingEmail) return NextResponse.json({ error: "這個 Email 已經被註冊過了" }, { status: 409 });
@@ -44,6 +50,7 @@ export async function POST(req: Request) {
     .from("members")
     .insert({
       username,
+      display_name: displayName,
       password_hash: passwordHash,
       profile_url: profileUrl,
       profile_url_norm: profileUrlNorm,
@@ -53,7 +60,10 @@ export async function POST(req: Request) {
     })
     .select()
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (/idx_members_display_name/.test(error.message)) return NextResponse.json({ error: DISPLAY_NAME_TAKEN_MESSAGE }, { status: 409 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   // 寄驗證信（就算寄信失敗也不擋註冊流程，只是要讓前端知道信有沒有真的寄出去）
   let verifyEmailSent = true;
@@ -70,6 +80,7 @@ export async function POST(req: Request) {
   const res = NextResponse.json({
     ok: true,
     username: created.username,
+    displayName: created.display_name || null,
     profileUrl: created.profile_url,
     email: created.email,
     emailVerified: false,

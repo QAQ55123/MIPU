@@ -27,7 +27,7 @@ const FULFILLMENT_STATUS_MAP: Record<string, { label: string; color: string }> =
   arrived: { label: "已到貨", color: "#fa4166" },
   distributing: { label: "已開賣場", color: "#16a34a" },
 };
-type Identity = { username: string; profileUrl: string; email: string; emailVerified: boolean; pendingProfileUrl?: string | null } | null;
+type Identity = { username: string; displayName?: string | null; profileUrl: string; email: string; emailVerified: boolean; pendingProfileUrl?: string | null } | null;
 type PendingAction = null | "order" | "history" | "favorites";
 
 const fmt = (n: number) => new Intl.NumberFormat("zh-TW").format(Math.round(n));
@@ -60,6 +60,20 @@ export default function Home() {
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [regUsername, setRegUsername] = useState("");
+  const [regDisplayName, setRegDisplayName] = useState("");
+  const [requiredDisplayName, setRequiredDisplayName] = useState("");
+  const [requiredDisplayNameMsg, setRequiredDisplayNameMsg] = useState("");
+  const [requiredDisplayNameSaving, setRequiredDisplayNameSaving] = useState(false);
+  const [accountDisplayName, setAccountDisplayName] = useState("");
+  const [accountDisplayNameMsg, setAccountDisplayNameMsg] = useState("");
+  const [accountDisplayNameSaving, setAccountDisplayNameSaving] = useState(false);
+  // 進到「編輯會員資料」時，把目前的會員名稱帶進輸入框
+  useEffect(() => {
+    if (view === "account") {
+      setAccountDisplayName(identity?.displayName || "");
+      setAccountDisplayNameMsg("");
+    }
+  }, [view, identity?.displayName]);
   const [regPassword, setRegPassword] = useState("");
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
   const [regProfileUrl, setRegProfileUrl] = useState("");
@@ -211,6 +225,7 @@ export default function Home() {
         if (d.loggedIn) {
           const id: Identity = {
             username: d.username,
+            displayName: d.displayName ?? null,
             profileUrl: d.profileUrl,
             email: d.email,
             emailVerified: d.emailVerified,
@@ -316,10 +331,48 @@ export default function Home() {
     setProductsLoading(false);
   }
 
+  async function saveDisplayName(name: string): Promise<{ ok: true; displayName: string } | { ok: false; error: string }> {
+    const v = name.trim();
+    if (!v) return { ok: false, error: "請填寫會員名稱" };
+    if (Array.from(v).length > 20) return { ok: false, error: "會員名稱最多 20 個字" };
+    try {
+      const r = await fetch("/api/auth/display-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: v }),
+      });
+      const d = await r.json();
+      if (!r.ok) return { ok: false, error: d.error || "儲存失敗" };
+      setIdentity((prev) => (prev ? { ...prev, displayName: d.displayName } : prev));
+      return { ok: true, displayName: d.displayName };
+    } catch {
+      return { ok: false, error: "網路連線失敗，請再試一次" };
+    }
+  }
+
+  async function onSubmitRequiredDisplayName() {
+    setRequiredDisplayNameSaving(true);
+    setRequiredDisplayNameMsg("");
+    const res = await saveDisplayName(requiredDisplayName);
+    setRequiredDisplayNameSaving(false);
+    if (!res.ok) return setRequiredDisplayNameMsg(res.error);
+    setRequiredDisplayName("");
+  }
+
+  async function onUpdateAccountDisplayName() {
+    setAccountDisplayNameSaving(true);
+    setAccountDisplayNameMsg("");
+    const res = await saveDisplayName(accountDisplayName);
+    setAccountDisplayNameSaving(false);
+    if (!res.ok) return setAccountDisplayNameMsg(res.error);
+    setAccountDisplayNameMsg("會員名稱已更新。");
+  }
+
   function clearAuthForms() {
     setLoginUsername("");
     setLoginPassword("");
     setRegUsername("");
+    setRegDisplayName("");
     setRegPassword("");
     setRegConfirmPassword("");
     setRegProfileUrl("");
@@ -346,7 +399,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "登入失敗");
-      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl };
+      const id = { username: d.username, displayName: d.displayName ?? null, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl };
       setIdentity(id);
       setLoginPassword("");
       afterAuthSuccess(id);
@@ -360,6 +413,8 @@ export default function Home() {
   async function onRegister() {
     setAuthMsg("");
     if (regUsername.trim().length < 1) return setAuthMsg("請輸入帳號");
+    if (!regDisplayName.trim()) return setAuthMsg("請填寫會員名稱");
+    if (Array.from(regDisplayName.trim()).length > 20) return setAuthMsg("會員名稱最多 20 個字");
     if (regPassword.length < 6) return setAuthMsg("密碼至少要 6 個字");
     if (regPassword !== regConfirmPassword) return setAuthMsg("兩次輸入的密碼不一樣");
     if (!regProfileUrl.trim()) return setAuthMsg("請填寫個人頁網址");
@@ -372,6 +427,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username: regUsername.trim(),
+          displayName: regDisplayName.trim(),
           password: regPassword,
           confirmPassword: regConfirmPassword,
           profileUrl: regProfileUrl.trim(),
@@ -380,7 +436,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAuthMsg(d.error || "註冊失敗");
-      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl };
+      const id = { username: d.username, displayName: d.displayName ?? null, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl };
       setIdentity(id);
       clearAuthForms();
       setRegisterVerifyEmailSent(d.verifyEmailSent !== false);
@@ -468,7 +524,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setLegacyMsg(d.error || "建立失敗");
-      const id = { username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: null };
+      const id = { username: d.username, displayName: d.displayName ?? null, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: null };
       setIdentity(id);
       setLegacyClaimedOrders(d.claimedOrders || 0);
       setRegisterVerifyEmailSent(d.verifyEmailSent !== false);
@@ -1004,7 +1060,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAccountProfileMsg(d.error || "更新失敗");
-      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl });
+      setIdentity({ username: d.username, displayName: d.displayName ?? null, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl });
       setAccountNewEmail("");
       setAccountNewProfileUrl("");
       const parts: string[] = [];
@@ -1033,7 +1089,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) return setAccountProfileMsg(d.error || "失敗");
-      setIdentity({ username: d.username, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl });
+      setIdentity({ username: d.username, displayName: d.displayName ?? null, profileUrl: d.profileUrl, email: d.email, emailVerified: d.emailVerified, pendingProfileUrl: d.pendingProfileUrl });
       setAccountProfileMsg(d.verifyEmailSent ? "驗證信已重新寄出，請去收信點連結驗證（記得也檢查一下垃圾郵件匣）。" : "這個信箱已經驗證過了。");
     } catch {
       setAccountProfileMsg("網路連線失敗，請再試一次");
@@ -1255,7 +1311,7 @@ export default function Home() {
                   <div className="mibu-hover-panel">
                     {identity ? (
                       <>
-                        <div className="mibu-hover-panel-title">{identity.username}</div>
+                        <div className="mibu-hover-panel-title">{identity.displayName || identity.username}</div>
                         <div className="mibu-hover-panel-row"><span>個人頁</span><span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{identity.profileUrl}</span></div>
                       </>
                     ) : (
@@ -1354,7 +1410,7 @@ export default function Home() {
                     <h2 className="section-title">登入</h2>
                     <div className="id-row">
                       <span className="id-label">帳號</span>
-                      <input type="text" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} />
+                      <input type="text" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onLogin()} placeholder="帳號或Email" />
                     </div>
                     <div className="id-row">
                       <span className="id-label">密碼</span>
@@ -1372,6 +1428,10 @@ export default function Home() {
                     <div className="id-row">
                       <span className="id-label">帳號</span>
                       <input type="text" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="帳號" />
+                    </div>
+                    <div className="id-row">
+                      <span className="id-label">會員名稱</span>
+                      <input type="text" value={regDisplayName} onChange={(e) => setRegDisplayName(e.target.value)} placeholder="顯示在賣場名稱用，1～20 字" maxLength={40} />
                     </div>
                     <div className="id-row">
                       <span className="id-label">密碼</span>
@@ -2086,6 +2146,7 @@ export default function Home() {
                 <h2 className="section-title">編輯會員資料</h2>
                 <div className="auth-card" style={{ marginTop: 0 }}>
                   <div className="id-row"><span className="id-label">帳號</span><span>{identity.username}</span></div>
+                  <div className="id-row"><span className="id-label">會員名稱</span><span>{identity.displayName || "（尚未設定）"}</span></div>
                   <div className="id-row"><span className="id-label">個人頁</span><span style={{ wordBreak: "break-all" }}>{identity.profileUrl}</span></div>
                   {identity.pendingProfileUrl && (
                     <div className="id-row">
@@ -2109,6 +2170,17 @@ export default function Home() {
                       )}
                     </span>
                   </div>
+                </div>
+
+                <div className="auth-card">
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>修改會員名稱</h3>
+                  <p style={{ fontSize: 12, color: "var(--muted)", margin: "-6px 0 0" }}>顯示在賣場名稱用。</p>
+                  <div className="id-row">
+                    <span className="id-label">會員名稱</span>
+                    <input type="text" value={accountDisplayName} onChange={(e) => setAccountDisplayName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onUpdateAccountDisplayName()} maxLength={40} />
+                  </div>
+                  <div className="auth-msg" style={accountDisplayNameMsg === "會員名稱已更新。" ? { color: "#27500A" } : undefined}>{accountDisplayNameMsg}</div>
+                  <div><button className="btn" onClick={onUpdateAccountDisplayName} disabled={accountDisplayNameSaving}>{accountDisplayNameSaving ? "儲存中…" : "更新"}</button></div>
                 </div>
 
                 <div className="auth-card">
@@ -2230,6 +2302,30 @@ export default function Home() {
       )}
 
       <div className={`toast ${toast ? "show" : ""}`}>{toast}</div>
+
+      {identity && !identity.displayName && (
+        // 還沒設定會員名稱：強制填寫，沒有關閉鈕、點背景也關不掉
+        <div className="announcement-modal-overlay" style={{ zIndex: 200 }}>
+          <div className="announcement-modal-card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="announcement-modal-title">請設定會員名稱</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>會員名稱顯示在賣場名稱用，設定後才能繼續使用。1～20 字。</div>
+            <div className="id-row">
+              <input
+                type="text"
+                value={requiredDisplayName}
+                onChange={(e) => setRequiredDisplayName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !requiredDisplayNameSaving && onSubmitRequiredDisplayName()}
+                placeholder="會員名稱"
+                maxLength={40}
+                style={{ minWidth: 0 }}
+                autoFocus
+              />
+            </div>
+            <div className="auth-msg">{requiredDisplayNameMsg}</div>
+            <button className="btn" onClick={onSubmitRequiredDisplayName} disabled={requiredDisplayNameSaving}>{requiredDisplayNameSaving ? "儲存中…" : "確認"}</button>
+          </div>
+        </div>
+      )}
 
       {lightboxUrl && (
         <div className="lightbox show" onClick={() => setLightboxUrl(null)}>

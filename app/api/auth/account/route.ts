@@ -4,6 +4,7 @@ import { verifyMemberPw, normFb } from "@/lib/util";
 import { sendEmail, verifyEmailContent } from "@/lib/resend";
 import { genToken, hoursFromNow, getSiteUrl } from "@/lib/tokens";
 import { syncMembersSheet } from "@/lib/sheetsSync";
+import { escapeLike } from "@/lib/memberDisplayName";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -15,7 +16,7 @@ export async function POST(req: Request) {
   if (!username || !password) return NextResponse.json({ error: "請輸入帳號密碼" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { data: member } = await supabase.from("members").select("*").ilike("username", username).maybeSingle();
+  const { data: member } = await supabase.from("members").select("*").ilike("username", escapeLike(username)).maybeSingle();
   if (!member) return NextResponse.json({ error: "帳號或密碼錯誤" }, { status: 401 });
 
   const ok = await verifyMemberPw(password, member.password_hash);
@@ -89,6 +90,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     username: updated.username,
+    displayName: updated.display_name || null,
     profileUrl: updated.profile_url,
     pendingProfileUrl: updated.pending_profile_url,
     email: updated.email,

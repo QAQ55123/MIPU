@@ -235,3 +235,7 @@ create table if not exists cost_archives (
   archived_at timestamptz not null default now()
 );
 alter table cost_archives enable row level security;
+
+-- 會員名稱（見 migration_add_members_display_name.sql）
+alter table members add column if not exists display_name text;
+create unique index if not exists idx_members_display_name on members (lower(display_name)) where display_name is not null;

@@ -2806,6 +2806,9 @@ export default function AdminPage() {
               <div style={{ fontSize: 13, marginTop: 10, background: "#FAF8F2", borderRadius: 8, padding: 10 }}>
                 <div>企劃底下的顧客：<strong>{myshipPreview.totalCustomers}</strong> 人</div>
                 <div>會分成 <strong>{myshipPreview.groupCount}</strong> 個賣貨便商品（每個商品最多 50 個規格，超過會自動分組）</div>
+                {myshipPreview.imageWarning && (
+                  <div style={{ color: "#B3261E", marginTop: 6 }}>{myshipPreview.imageWarning}</div>
+                )}
                 {myshipPreview.overLimit?.length > 0 && (
                   <div style={{ color: "#B3261E", marginTop: 6 }}>
                     以下顧客差額超過賣貨便單一規格 NT$20,000 上限，沒有列入匯出檔，需要你自己另外處理：

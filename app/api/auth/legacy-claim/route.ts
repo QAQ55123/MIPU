@@ -108,6 +108,7 @@ export async function POST(req: Request) {
   const res = NextResponse.json({
     ok: true,
     username: created.username,
+    displayName: created.display_name || null,
     profileUrl: created.profile_url,
     email: created.email,
     emailVerified: false,

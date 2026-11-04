@@ -28,6 +28,8 @@ export async function GET(req: Request) {
       totalCustomers: result.totalCustomers,
       groupCount: result.groups.length,
       overLimit: result.overLimit,
+      imageUrl: result.imageUrl,
+      imageWarning: result.imageWarning,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
