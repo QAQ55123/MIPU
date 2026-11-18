@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getMemberSession } from "@/lib/memberAuth";
+import { syncMembersSheet } from "@/lib/sheetsSync";
+import { runInBackground } from "@/lib/background";
 import { validateDisplayName, isDisplayNameTaken, DISPLAY_NAME_TAKEN_MESSAGE } from "@/lib/memberDisplayName";
 
 export const dynamic = "force-dynamic";
@@ -33,5 +35,7 @@ export async function POST(req: Request) {
   }
   if (!updated) return NextResponse.json({ error: "找不到這個會員，請重新登入" }, { status: 404 });
 
+  // 會員分頁的「會員名稱」欄在背景更新（企劃訂單分頁、成本表會在該企劃下次同步時更新）
+  runInBackground(syncMembersSheet(), "修改會員名稱後同步會員分頁");
   return NextResponse.json({ ok: true, displayName: updated.display_name });
 }

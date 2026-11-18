@@ -19,6 +19,15 @@ export async function syncOrderToSheet(params: { planId: string; planName: strin
   }
 }
 
+/** 建立企劃、新增／修改／刪除商品後，立刻建立或更新這個企劃的訂單分頁（商品目錄）＋成本分頁，
+ *  不用等第一筆訂單；錯誤一樣只記 log（同 syncOrderToSheet） */
+export async function syncPlanTabsById(planId: string) {
+  const supabase = getSupabaseAdmin();
+  const { data: plan } = await supabase.from("plans").select("id, name").eq("id", planId).maybeSingle();
+  if (!plan) return;
+  await syncOrderToSheet({ planId: plan.id, planName: plan.name });
+}
+
 /** 完整重新同步「所有企劃」的訂單分頁（給手動「立即完整同步一次」按鈕用）
  *  注意：這裡「不」吞掉錯誤，失敗要讓呼叫端知道 */
 export async function syncAllOrdersSheet() {
@@ -36,6 +45,7 @@ export async function syncMembersSheet() {
   const { data } = await supabase.from("members").select("*").order("created_at", { ascending: true });
   const rows = (data || []).map((m) => [
     m.username,
+    m.display_name || "",
     m.profile_url,
     m.email,
     m.email_verified ? "已驗證" : "未驗證",
@@ -43,7 +53,7 @@ export async function syncMembersSheet() {
     m.discord_username || "",
     m.discord_user_id || "",
   ]);
-  await overwriteSheet("會員", ["帳號", "個人頁網址", "Email", "信箱驗證", "註冊時間", "DC帳號名稱", "DC使用者ID"], rows);
+  await overwriteSheet("會員", ["帳號", "會員名稱", "個人頁網址", "Email", "信箱驗證", "註冊時間", "DC帳號名稱", "DC使用者ID"], rows);
 }
 
 /** 企劃資料同上，整份重寫 */

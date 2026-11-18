@@ -2,11 +2,13 @@ import { getSupabaseAdmin } from "./supabase";
 import {
   getSheets, requireSheetId, requireCostSheetId,
   ensureSheetExistsCached, getValuesAndFormulas, batchGetValues, columnToLetter,
-  buildClearRequest, buildWriteRequest, buildBoldRangeRequest, buildHideSheetRequest, buildNumberFormatRequest, buildEnsureColumnCountRequest,
+  buildClearRequest, buildClearFormatRequest, buildWriteRequest, buildBoldRangeRequest, buildHideSheetRequest, buildNumberFormatRequest, buildEnsureColumnCountRequest,
   runBatch, type BatchRequest, type SheetsClient, type SheetMetaCache,
 } from "./googleSheets";
+import { getDisplayNameMap } from "./memberDisplayName";
 
-const ORDER_HEADER = ["訂單編號", "來源", "暱稱", "FB個人網址", "商品名稱", "款式", "數量", "單價", "小計", "訂單時間", "交易方式", "付款狀態"];
+// 「會員名稱」刻意放在最後一欄（M 欄）：前面 A~L 欄的位置成本表統計會用到，不能移動
+const ORDER_HEADER = ["訂單編號", "來源", "暱稱", "FB個人網址", "商品名稱", "款式", "數量", "單價", "小計", "訂單時間", "交易方式", "付款狀態", "會員名稱"];
 const CATALOG_HEADER = ["商品名稱", "款式", "單價", "圖片", "運送方式"];
 
 function sleep(ms: number) {
@@ -75,6 +77,7 @@ async function buildOrderTabRequests(sheets: SheetsClient, mainSheetId: string, 
 
   const [products, orders] = await Promise.all([getPlanProducts(planId), getPlanOrders(planId)]);
 
+  const memberNames = await getDisplayNameMap(orders.map((o: any) => o.username));
   const catalogRows = products.map((p: any) => [p.name, p.style || "", Number(p.price) || 0, p.image_url || "", p.shipping_method || ""]);
   const catalogBlock = [CATALOG_HEADER, ...catalogRows];
 
@@ -86,19 +89,20 @@ async function buildOrderTabRequests(sheets: SheetsClient, mainSheetId: string, 
         o.order_no, "", o.username, o.profile_url, it.product_name, it.style || "",
         it.qty, Number(it.unit_price) || 0, Number(it.subtotal) || 0,
         new Date(o.created_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }), o.payment, paidAmount > 0 ? paidAmount : "",
+        memberNames.get(String(o.username || "").trim()) || "",
       ]);
     });
   });
 
   const fullData: (string | number)[][] = [
     ...catalogBlock,
-    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["", "", "", "", "", "", "", "", "", "", "", "", ""],
     ORDER_HEADER,
     ...orderRows,
   ];
 
   return [
-    buildClearRequest(sheetId, 100000, 12),
+    buildClearRequest(sheetId, 100000, 13),
     buildWriteRequest(sheetId, 0, 0, fullData),
     buildBoldRangeRequest(sheetId, 0, 1, 0, CATALOG_HEADER.length),
     buildBoldRangeRequest(sheetId, catalogBlock.length + 1, catalogBlock.length + 2, 0, ORDER_HEADER.length),
@@ -189,13 +193,13 @@ function aggregateFromValues(values: any[][]): Aggregated {
 }
 
 async function aggregatePlanFromSheet(sheets: SheetsClient, id: string, tabName: string): Promise<Aggregated> {
-  const { values } = await getValuesAndFormulas(sheets, id, `${tabName}!A1:L100000`);
+  const { values } = await getValuesAndFormulas(sheets, id, `'${tabName.replace(/'/g, "''")}'!A1:L100000`);
   return aggregateFromValues(values);
 }
 
 const LABELS = [
   "商品", "款式", "運送方式", "售價", "進貨單價", "單件重量(g)", "數量", "小計", "",
-  "【空運運費計算】", "【海運運費計算】", "包裹總重(g)", "每公斤價格", "商品總重(g)", "包材重量(g)", "每g分攤比例",
+  "【空運運費計算】", "【海運運費計算】", "【運費計算】", "包裹總重(g)", "每公斤價格", "商品總重(g)", "空運商品總重(g)", "海運商品總重(g)", "包材重量(g)", "每g分攤比例",
   "內陸運費",
   "【總覽】", "總收入", "總進貨成本", "其他", "淨利潤",
   "【客戶應收運費】", "客戶",
@@ -219,17 +223,27 @@ async function buildCostTabRequests(
   let pkgTotalSea: any = "", kgPriceSea: any = "";
   let landFee: any = "", otherVal: any = "";
   let seenAirBlock = false, seenSeaBlock = false;
+  // 判斷舊分頁是哪種格式（看第一列表頭的 C 欄）：
+  //   舊格式（空運/海運分開之前）：商品｜款式｜售價｜進貨單價｜單件重量｜數量｜小計，只有一個【運費計算】區塊
+  //   新格式：                     商品｜款式｜運送方式｜售價｜進貨單價｜單件重量｜數量｜小計，分【空運】【海運】兩個區塊
+  // 以前不分格式一律照新格式的位置讀，舊格式分頁一同步就把進貨單價讀成空白、重量讀成數量、運費整個不見
+  const header = (oldValues[0] || []).map((x: any) => String(x ?? "").trim());
+  const isOldLayout = header[0] === "商品" && header[2] === "售價";
+  const buyCol = isOldLayout ? 3 : 4;
+  const weightCol = isOldLayout ? 4 : 5;
   oldValues.forEach((v, i) => {
+    if (i === 0) return; // 表頭
     const a = String(v[0] || "").trim();
     const cell = (c: number) => (oldFormulas[i]?.[c] ? oldFormulas[i][c] : v[c]);
     if (a === "【空運運費計算】") { seenAirBlock = true; seenSeaBlock = false; return; }
     if (a === "【海運運費計算】") { seenSeaBlock = true; seenAirBlock = false; return; }
-    if (a === "包裹總重(g)") { if (seenAirBlock) pkgTotalAir = cell(2); else if (seenSeaBlock) pkgTotalSea = cell(2); return; }
-    if (a === "每公斤價格") { if (seenAirBlock) kgPriceAir = cell(2); else if (seenSeaBlock) kgPriceSea = cell(2); return; }
+    if (a === "【運費計算】") { seenAirBlock = true; seenSeaBlock = false; return; } // 舊格式唯一的運費區塊 → 放進空運
+    if (a === "包裹總重(g)") { if (seenSeaBlock) pkgTotalSea = cell(2); else pkgTotalAir = cell(2); return; }
+    if (a === "每公斤價格") { if (seenSeaBlock) kgPriceSea = cell(2); else kgPriceAir = cell(2); return; }
     if (a === "內陸運費") { landFee = cell(2); return; }
     if (a === "其他") { otherVal = cell(2); return; }
-    if (a && LABELS.indexOf(a) === -1) {
-      manual.set(`${a}|${String(v[1] || "").trim()}`, { buy: cell(4), weightWrite: cell(5) });
+    if (a && LABELS.indexOf(a) === -1 && !manual.has(`${a}|${String(v[1] || "").trim()}`)) {
+      manual.set(`${a}|${String(v[1] || "").trim()}`, { buy: cell(buyCol), weightWrite: cell(weightCol) });
     }
   });
 
@@ -294,8 +308,10 @@ async function buildCostTabRequests(
 
   data.push(pad8());
   data.push(["【客戶應收運費】", "", "", "", "", "", "", ""]);
-  data.push(["客戶", "應收運費", "商品小計", "應收總額", "已收", "尚欠", "", ""]);
+  // 「會員名稱」放在 G 欄：A~F 欄的位置總覽公式、匯出賣貨便、封存都會用到，不能移動
+  data.push(["客戶", "應收運費", "商品小計", "應收總額", "已收", "尚欠", "會員名稱", ""]);
   const custStartRow = N + 27;
+  const custMemberNames = await getDisplayNameMap(customers.map((c) => c.display));
   customers.forEach((c, i) => {
     const row = custStartRow + i;
     const col = columnToLetter(3 + i);
@@ -308,7 +324,7 @@ async function buildCostTabRequests(
     const seaFee = `IF($C$${seaKgRow}="",0,(${wSumSea})*${ratioMulSea}*$C$${seaKgRow}/1000)`;
     const feeF = `=CEILING(${airFee}+${seaFee}+${landShare},1)`;
     const subtotalF = `=SUMPRODUCT($D$2:$D$${lastP},${detailRef}${col}2:${col}${lastP})`;
-    data.push([c.display, feeF, subtotalF, `=B${row}+C${row}`, Number(c.paid) || 0, `=D${row}-E${row}`, "", ""]);
+    data.push([c.display, feeF, subtotalF, `=B${row}+C${row}`, Number(c.paid) || 0, `=D${row}-E${row}`, custMemberNames.get(c.display) || "", ""]);
   });
 
   const detailColCount = Math.max(60, 2 + customers.length + 10);
@@ -316,6 +332,8 @@ async function buildCostTabRequests(
   return {
     requests: [
       buildClearRequest(sheetId, 100000, 8),
+      // 連格式一起清掉再重新套用：以前只清內容，商品／客戶數量一變，舊的粗體就留在錯的列上，看起來跑版
+      buildClearFormatRequest(sheetId, 100000, 8),
       buildWriteRequest(sheetId, 0, 0, data),
       buildBoldRangeRequest(sheetId, 0, 1, 0, 8),
       buildBoldRangeRequest(sheetId, N + 24, N + 26, 0, 8),
@@ -422,7 +440,13 @@ export async function syncOnePlanCostTab(planId: string, planName: string) {
     if (agg.products.length === 0) return;
 
     const cache: SheetMetaCache = new Map();
-    const { values: oldValues, formulas: oldFormulas } = await getValuesAndFormulas(sheets, costId, `${tabName}!A1:H100000`);
+    // 新企劃第一次同步時成本分頁還不存在：直接讀會出錯（以前就是卡在這裡，分頁永遠建不起來），
+    // 先確認分頁在不在，不在就當作空白成本表，後面 buildCostTabRequests 會建立分頁
+    await ensureSheetExistsCached(sheets, costId, "總覽", cache, 0);
+    const costTabExists = cache.get(costId)?.has(tabName) ?? false;
+    const { values: oldValues, formulas: oldFormulas } = costTabExists
+      ? await getValuesAndFormulas(sheets, costId, `'${tabName.replace(/'/g, "''")}'!A1:H100000`)
+      : { values: [] as any[][], formulas: [] as any[][] };
     const { requests: costRequests, custStartRow, custCount, incomeRow, costRow, profitRow } = await buildCostTabRequests(sheets, costId, tabName, agg, oldValues, oldFormulas, cache);
 
     const summarySheetId = await ensureSheetExistsCached(sheets, costId, "總覽", cache, 0);

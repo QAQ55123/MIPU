@@ -101,6 +101,17 @@ export function buildClearRequest(sheetId: number, endRowIndex = 100000, endColI
   };
 }
 
+/** 建構「清除格式」的請求（粗體、底色、數字格式等），只動格式不動內容 */
+export function buildClearFormatRequest(sheetId: number, endRowIndex = 100000, endColIndex = 26): BatchRequest {
+  return {
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex, startColumnIndex: 0, endColumnIndex: endColIndex },
+      cell: {},
+      fields: "userEnteredFormat",
+    },
+  };
+}
+
 /** 建構「從某個位置開始寫入一整塊資料」的請求 */
 export function buildWriteRequest(sheetId: number, startRow: number, startCol: number, values: (string | number)[][]): BatchRequest {
   return {

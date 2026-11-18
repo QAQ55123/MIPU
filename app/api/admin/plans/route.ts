@@ -6,6 +6,8 @@ import { syncPlansSheet } from "@/lib/sheetsSync";
 import { requireSheetId, deleteSheetTabIfExists } from "@/lib/googleSheets";
 import { upsertPlanDeadlineEvent, deletePlanDeadlineEvent } from "@/lib/googleCalendar";
 import { safeTabName } from "@/lib/planSheetSync";
+import { runInBackground } from "@/lib/background";
+import { syncPlanTabsById } from "@/lib/sheetsSync";
 import { archivePlanCostBeforeDelete, rollbackPlanCostArchive, removePlanCostTabsAfterDelete, type ArchiveResult } from "@/lib/costArchive";
 
 export const dynamic = "force-dynamic";
@@ -86,6 +88,8 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   syncPlansSheet().catch(() => {});
+  // 企劃一建立就先在主試算表建立它的分頁（之後新增商品時會再更新商品目錄與成本分頁）
+  runInBackground(syncPlanTabsById(data.id), "建立企劃後建立試算表分頁");
 
   let calendarWarning = "";
   if (data.deadline) {

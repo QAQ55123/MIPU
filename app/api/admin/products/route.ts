@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { requireAdminSession } from "@/lib/adminAuth";
 import { deleteStorageFiles } from "@/lib/storage";
-import { syncProductsSheet } from "@/lib/sheetsSync";
+import { syncProductsSheet, syncPlanTabsById } from "@/lib/sheetsSync";
+import { runInBackground } from "@/lib/background";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 
 /** 後台用：列出某個企劃底下的所有商品 ?pw=&planId= */
@@ -77,6 +79,7 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   syncProductsSheet().catch(() => {});
+  runInBackground(syncPlanTabsById(body.planId), "新增商品後更新企劃分頁");
   return NextResponse.json({ ok: true, product: data });
 }
 
@@ -90,7 +93,7 @@ export async function PUT(req: Request) {
   if (!body.id) return NextResponse.json({ error: "缺少商品 id" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { data: oldProduct } = await supabase.from("products").select("image_url").eq("id", body.id).single();
+  const { data: oldProduct } = await supabase.from("products").select("image_url, plan_id").eq("id", body.id).single();
 
   const { error } = await supabase
     .from("products")
@@ -111,6 +114,7 @@ export async function PUT(req: Request) {
   }
 
   syncProductsSheet().catch(() => {});
+  if (oldProduct?.plan_id) runInBackground(syncPlanTabsById(oldProduct.plan_id), "修改商品後更新企劃分頁");
   return NextResponse.json({ ok: true });
 }
 
@@ -124,7 +128,7 @@ export async function DELETE(req: Request) {
   if (!body.id) return NextResponse.json({ error: "缺少商品 id" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { data: product } = await supabase.from("products").select("image_url").eq("id", body.id).single();
+  const { data: product } = await supabase.from("products").select("image_url, plan_id").eq("id", body.id).single();
 
   const { error } = await supabase.from("products").delete().eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -132,5 +136,6 @@ export async function DELETE(req: Request) {
   if (product?.image_url) deleteStorageFiles([product.image_url]).catch(() => {});
 
   syncProductsSheet().catch(() => {});
+  if (product?.plan_id) runInBackground(syncPlanTabsById(product.plan_id), "刪除商品後更新企劃分頁");
   return NextResponse.json({ ok: true });
 }

@@ -25,3 +25,16 @@ export async function isDisplayNameTaken(name: string, excludeMemberId?: string)
 }
 
 export const DISPLAY_NAME_TAKEN_MESSAGE = "這個會員名稱已經有人使用了，請換一個";
+
+/** 一次查出多個帳號對應的會員名稱（帳號 → 會員名稱）；沒設定會員名稱、或對不到會員的帳號不會出現在結果裡 */
+export async function getDisplayNameMap(usernames: string[]): Promise<Map<string, string>> {
+  const supabase = getSupabaseAdmin();
+  const list = Array.from(new Set(usernames.map((u) => String(u || "").trim()).filter(Boolean)));
+  const map = new Map<string, string>();
+  for (let i = 0; i < list.length; i += 200) {
+    const chunk = list.slice(i, i + 200);
+    const { data } = await supabase.from("members").select("username, display_name").in("username", chunk);
+    for (const m of data || []) if (m.display_name) map.set(String(m.username), String(m.display_name));
+  }
+  return map;
+}

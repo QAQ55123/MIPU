@@ -3,11 +3,13 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { genOrderNo, fmtMoney } from "@/lib/util";
 import { notifyDiscord } from "@/lib/discord";
 import { syncOrderToSheet } from "@/lib/sheetsSync";
+import { runInBackground } from "@/lib/background";
 import { getStockUsage, stockKey } from "@/lib/stock";
 import { isBlacklisted, BLACKLIST_MESSAGE } from "@/lib/blacklist";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 /** 新增訂單 */
 export async function POST(req: Request) {
@@ -167,10 +169,8 @@ export async function POST(req: Request) {
     ],
   });
 
-  syncOrderToSheet({
-    planId: plan.id,
-    planName: plan.name,
-  }).catch(() => {});
+  // 先回覆客人「下單成功」，試算表同步交給背景跑完（客人不用多等，Vercel 也不會中途停掉）
+  runInBackground(syncOrderToSheet({ planId: plan.id, planName: plan.name }), "下單後同步試算表");
 
   return NextResponse.json({ ok: true, orderNo: order.order_no, count: rows.length, total: orderTotal });
 }
