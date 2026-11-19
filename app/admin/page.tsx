@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Fragment } from "react";
 import { toDirectImageUrl } from "@/lib/imageUrl";
 
 type Category = { id: string; name: string; parent_id: string | null; created_at?: string; sort_order?: number };
@@ -90,6 +90,12 @@ export default function AdminPage() {
   const [productMsg, setProductMsg] = useState("");
   const [editedProducts, setEditedProducts] = useState<Record<string, { style: string; price: string; stockLimit: string; shippingMethod: string }>>({});
   const [savingAllProducts, setSavingAllProducts] = useState(false);
+  // Excel 上架
+  const [excelOpen, setExcelOpen] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelPreview, setExcelPreview] = useState<any>(null);
+  const [excelBusy, setExcelBusy] = useState(false);
+  const [excelMsg, setExcelMsg] = useState("");
   const [uploadingProductImg, setUploadingProductImg] = useState(false);
 
   // ---- 其他既有工具 ----
@@ -719,6 +725,40 @@ export default function AdminPage() {
   }
 
   // ================= 商品 =================
+  function openExcelImport() {
+    setExcelOpen(true);
+    setExcelFile(null);
+    setExcelPreview(null);
+    setExcelMsg("");
+  }
+
+  async function runExcelImport(file: File, commit: boolean) {
+    if (!activePlanForProducts) return;
+    setExcelBusy(true);
+    setExcelMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("planId", activePlanForProducts.id);
+      fd.append("file", file);
+      fd.append("commit", commit ? "1" : "0");
+      const r = await fetch("/api/admin/products/import", { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); }
+      if (!r.ok) throw new Error(d.error || "失敗");
+      if (commit) {
+        setExcelOpen(false);
+        setProductMsg(`Excel 上架完成：新增 ${d.newCount} 筆、更新 ${d.updateCount} 筆`);
+        await loadProducts(activePlanForProducts.id);
+      } else {
+        setExcelPreview(d);
+      }
+    } catch (e: any) {
+      setExcelMsg(e.message || "失敗");
+    } finally {
+      setExcelBusy(false);
+    }
+  }
+
   async function loadProducts(planId: string) {
     const r = await fetch(`/api/admin/products?planId=${planId}`);
     if (r.status === 401) { setUnlocked(false); setLoginMsg("登入已過期，請重新登入"); return; }
@@ -1871,7 +1911,10 @@ export default function AdminPage() {
 
           {activeSection === "products" && activePlanForProducts && (
         <div className="auth-card">
-          <h3>商品管理：{activePlanForProducts.name}</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <h3>商品管理：{activePlanForProducts.name}</h3>
+            <button className="btn small secondary" style={{ flexShrink: 0 }} onClick={openExcelImport}>Excel 上架</button>
+          </div>
           {products.length === 0 && plans.filter((pl) => pl.id !== activePlanForProducts.id).length > 0 && (
             <div className="id-row">
               <span className="id-label">複製商品目錄</span>
@@ -2786,6 +2829,103 @@ export default function AdminPage() {
                 {notifySending ? "寄送中…" : "確認發送"}
               </button>
               <button className="btn secondary" onClick={() => setNotifyPlan(null)}>關閉</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {excelOpen && activePlanForProducts && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }} onClick={() => !excelBusy && setExcelOpen(false)}>
+          <div className="auth-card" style={{ maxWidth: excelPreview ? 720 : 440, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>{excelPreview ? `Excel 上架預覽：${activePlanForProducts.name}` : "Excel 上架"}</h3>
+            {!excelPreview && (
+              <>
+                <p style={{ fontSize: 13, color: "#8A8779", margin: 0, lineHeight: 1.6 }}>
+                  先 <a href="/api/admin/products/import" style={{ color: "var(--primary)" }}>下載範本</a>，填好後上傳。已有的商品會保留；商品名稱＋款式一樣的會更新。
+                </p>
+                <div>
+                  <label className="btn small" style={{ display: "inline-block", opacity: excelBusy ? 0.5 : 1, cursor: excelBusy ? "not-allowed" : "pointer" }}>
+                    {excelBusy ? "讀取中…" : "選擇 Excel 檔案"}
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      style={{ display: "none" }}
+                      disabled={excelBusy}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] || null;
+                        e.target.value = "";
+                        if (!f) return;
+                        setExcelFile(f);
+                        runExcelImport(f, false);
+                      }}
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+            {excelPreview && (
+              <>
+                <div style={{ fontSize: 13 }}>
+                  新增 <strong>{excelPreview.newCount}</strong> 筆、更新 <strong>{excelPreview.updateCount}</strong> 筆
+                  {excelPreview.errorCount > 0 && <>、有錯誤 <strong style={{ color: "#B3261E" }}>{excelPreview.errorCount}</strong> 筆（有錯誤的列不會上架）</>}
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {["列", "結果", "商品名稱", "款式", "單價", "運送方式", "限量", "圖片"].map((h) => (
+                          <th key={h} style={{ border: "1px solid #E5E1D6", padding: "6px 8px", background: "#F5F2EA", textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {excelPreview.rows.map((r: any) => {
+                        const tag = r.status === "new" ? { t: "新增", bg: "#E3F1DF", c: "#27500A" } : r.status === "update" ? { t: "更新", bg: "#E6EEF8", c: "#1F3A5C" } : { t: "錯誤", bg: "#FBE4E1", c: "#B3261E" };
+                        const td = { border: "1px solid #E5E1D6", padding: "6px 8px", verticalAlign: "top" as const };
+                        return (
+                          <Fragment key={r.row}>
+                            <tr>
+                              <td style={td}>{r.row}</td>
+                              <td style={td}><span style={{ background: tag.bg, color: tag.c, borderRadius: 999, padding: "1px 8px", fontSize: 12, whiteSpace: "nowrap" }}>{tag.t}</span></td>
+                              <td style={td}>{r.name}</td>
+                              <td style={td}>{r.style}</td>
+                              <td style={td}>
+                                {r.price ?? ""}
+                                {r.status === "update" && r.oldPrice !== r.price && <span style={{ fontSize: 12, color: "#8A8779" }}>（原 {r.oldPrice}）</span>}
+                              </td>
+                              <td style={td}>{r.shippingMethod}</td>
+                              <td style={td}>{r.status === "error" ? "" : r.stockLimit == null ? "不限量" : r.stockLimit}</td>
+                              <td style={td}>{r.hasImage ? "有" : r.status === "update" ? "沿用原圖" : "沒有"}</td>
+                            </tr>
+                            {r.errors?.length > 0 && (
+                              <tr>
+                                <td style={td}></td>
+                                <td style={{ ...td, color: "#B3261E", fontSize: 12 }} colSpan={7}>第 {r.row} 列：{r.errors.join("；")}</td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {excelMsg && <div style={{ fontSize: 13, color: "#B3261E" }}>{excelMsg}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              {excelPreview && (
+                <button className="btn small secondary" onClick={() => { setExcelPreview(null); setExcelFile(null); setExcelMsg(""); }} disabled={excelBusy}>重新選檔</button>
+              )}
+              <button className="btn small secondary" onClick={() => setExcelOpen(false)} disabled={excelBusy}>{excelPreview ? "取消" : "關閉"}</button>
+              {excelPreview && (
+                <button
+                  className="btn small"
+                  disabled={excelBusy || !excelFile || excelPreview.newCount + excelPreview.updateCount === 0}
+                  onClick={() => excelFile && runExcelImport(excelFile, true)}
+                >
+                  {excelBusy ? "上架中…" : `確認上架（${excelPreview.newCount + excelPreview.updateCount} 筆）`}
+                </button>
+              )}
             </div>
           </div>
         </div>
